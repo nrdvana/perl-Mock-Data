@@ -53,9 +53,23 @@ alphabetical with primary key first.
 
 =head2 primary_key
 
-An arrayref of column names that compose the primary key.  This may be an empty arrayref for
-tables with no primary key.  This will be automatically built from any columns you supplied
-with a nonzero C<pk> attribute. (sorted by the pk attribute value)
+Alias for C<< keys->{primary} >>.
+
+=head2 keys
+
+A hashref of key names to info about the key:
+
+  $key_name => {
+    name => $key_name,
+    cols => \@column_names,
+    unique => $bool,
+  }
+
+There is usually a key named C<'primary'>, assembled from the columns marked "pk" or from the
+constructor argument C<primary_key>.  Other unique or non-unique keys may be included.
+As records are added, each key will be tracked so that duplicates can be detected, and so that
+other tables referring by foreign key to these keys can know whether the row was already added
+to this table or not.
 
 =head2 relations
 
@@ -98,7 +112,8 @@ row arrayrefs.
 has name         => is => 'ro', required => 1;
 has columns      => is => 'ro', required => 1, coerce => \&_coerce_columns;
 has column_order => is => 'lazy';
-has primary_key  => is => 'lazy';
+sub primary_key  { shift->key->{primary} }
+has keys         => is => 'ro', default => sub { +{} };
 has relations    => is => 'ro', default => sub { +{} };
 
 has rows         => is => 'rw', init_arg => undef, default => sub { [] };
@@ -120,10 +135,12 @@ sub BUILD {
 			unless $self->can($_);
 	}
 	# If a primary key was given, make sure the columns are flagged as such
+	# for correct default sorting.
 	if (defined $args->{primary_key}) {
 		my $i= 0;
 		$self->columns->{$_}{pk}= ++$i
 			for @{ $args->{primary_key} };
+		$self->keys->{primary}= $args->{primary_key};
 	}
 	# If a column_order was given, make sure the column ->{idx} match
 	if (defined $args->{column_order}) {
@@ -142,11 +159,13 @@ sub BUILD {
 			cols => [ $col->{name} ],
 			peer => $col->{fk}[0],
 			peer_cols => [ $col->{fk}[1] ],
+			is_fk => 1,
+			cardinality => $self->is_unique_key($col->{name})? '1:1' : 'N:1',
 		};
 	}
 }
 
-sub _build_primary_key {
+sub _build_keys {
 	my $self= shift;
 	# No primary key was given.  Iterate the list of columns in column order
 	# and collect any with 'pk' set on them.
@@ -179,7 +198,7 @@ sub _coerce_columns {
 		: croak "Expected an arrayref or hashref for 'columns'";
 	for my $name (keys %cols) {
 		# If the value is not a hashref, then it is the default generator
-		$cols{$name}= { default => $cols{name} }
+		$cols{$name}= { fill => $cols{name} }
 			if ref $cols{$name} ne 'HASH';
 		$cols{$name}{name}= $name;
 	}
