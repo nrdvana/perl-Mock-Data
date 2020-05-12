@@ -111,9 +111,34 @@ making an unreadable mess of details.
 This module solves that problem by generating mock data to fill in all the
 blanks around the data you care about.
 
+=head1 ATTRIBUTES
+
+=head2 tables
+
+Hashref of table name to L<Mock::RelationalData::Table> object.
+
 =cut
 
 has tables     => ( is => 'rw' );
+
+=head1 METHODS
+
+=head2 define_schema
+
+  $reldata->define_schema($dbic_schema, ...);
+  $reldata->define_schema($dbic_source, ...);
+  $reldata->define_schema(\%table_attributes, ...);
+  $reldata->define_schema($table_name => \%columns, ...);
+
+Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
+objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
+import a single table, a hashref is used as the direct constructor arguments for a
+L<Mock::RelationalData::Table>, and a scalar followed by an array or hashref are considered to
+be a tbale name and its column specification.
+
+The table name must be unique; attempts to define a table twice will throw an exception.
+
+=cut
 
 sub define_schema {
 	my $self= shift;
@@ -139,12 +164,56 @@ sub define_schema {
 	}
 }
 
+=head2 define_table
+
+  $reldata->define_table( %attrs );
+
+This is a shortcut for creating instances of L<Mock::RelationalData::Table> and assigning them
+to the L</tables> hashref.  If a table by this name already exists, it throws an error.
+
+=cut
+
 sub define_table {
 	my $self= shift;
 	my $table= Mock::RelationalData::Table->new(@_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]} : @_);
-	croak "Table ".$table->name." was already defined"
+	croak "Table '".$table->name."' was already defined"
 		if $self->tables->{$table->name};
 	$self->tables->{$table->name}= $table;
+}
+
+=head2 set_column_fillers
+
+You can declare the C<fill> attribute on each column you define in L</define_table>, however if
+you loaded your schema from a C<DBIx::Class::Schema> you can't redefine the table, and probably
+just want to add the C<fill> attribute to the existing columns.  This method does that.
+
+  $reldata->set_column_fillers(
+    table1 => {
+      col1 => $fill_spec,
+      col2 => $fill_spec,
+    },
+    table2 => { ... },
+    ...
+  );
+
+=cut
+
+sub set_column_fillers {
+	my $self= shift;
+	while (my ($table_name, $colfill)= splice @_, 0, 2) {
+		my $table= $self->tables->{$table_name} or croak "Table '$table_name' is not declared";
+		for my $col (keys %$colfill) {
+			defined $table->columns->{$col} or croak "Column '$table_name'.'$col' does not exist";
+			$table->columns->{$col}{fill}= $colfill->{$col};
+		}
+	}
+}
+
+=head2 add_records
+
+=cut
+
+sub add_records {
 }
 
 sub _dbic_rsrc_to_table_spec {
