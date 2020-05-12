@@ -80,17 +80,17 @@ A hashref of relation names from this table to another table.  Each relation is 
   
   # direct relations:
   
+    cardinality => ..., # '1:1', '1:N', 'N:1'
     cols        => \@self_column_names,
     peer        => $peer_table_name,
     peer_cols   => \@peer_column_names,
-    is_fk       => \$bool
-    cardinality => ...# '1:1', '1:N', 'N:1'
+    is_fk       => \$bool,
   
   # or many-many relations:
   
+    cardinality => 'N:N',
     rel         => $self_relation_to_peer,
     peer_rel    => $peer_relation_to_destination,
-    cardinality => 'N:N'
   }
 
 When constructing rows, you may specify data for a relation and (like in DBIC) it will create
@@ -112,7 +112,7 @@ row arrayrefs.
 has name         => is => 'ro', required => 1;
 has columns      => is => 'ro', required => 1, coerce => \&_coerce_columns;
 has column_order => is => 'lazy';
-sub primary_key  { shift->key->{primary} }
+sub primary_key  { my $pk= shift->keys->{primary}; $pk? $pk->{cols} : undef }
 has keys         => is => 'ro', default => sub { +{} };
 has relations    => is => 'ro', default => sub { +{} };
 
@@ -127,29 +127,53 @@ sub _pk_str {
 	);
 }
 
+our %_known_ctor_args= map +($_=>1), qw(
+	name
+	columns
+	column_order
+	keys
+	primary_key
+	relations
+);
 sub BUILD {
 	my ($self, $args)= @_;
 	# Help user by checking for typos in arguments
-	for (keys %$args) {
-		croak "No such Table attribute ".$_
-			unless $self->can($_);
-	}
+	croak "No such Table attribute ".$_ for grep !$_known_ctor_args{$_}, keys %$args;
+	
 	# If a primary key was given, make sure the columns are flagged as such
 	# for correct default sorting.
 	if (defined $args->{primary_key}) {
 		my $i= 0;
+		my @pk= !ref $args->{primary_key}? ($args->{primary_key}) : @{$args->{primary_key}};
 		$self->columns->{$_}{pk}= ++$i
-			for @{ $args->{primary_key} };
-		$self->keys->{primary}= $args->{primary_key};
+			for @pk;
+		$self->keys->{primary}= { cols => \@pk, unique => 1 };
 	}
-	# If a column_order was given, make sure the column ->{idx} match
+	
+	# If a column_order was given, it takes priority over any ->{idx} found on columns.
 	if (defined $args->{column_order}) {
 		my $i= 0;
 		$self->columns->{$_}{idx}= $i++
 			for @{ $args->{column_order} };
 	}
+	
+	# Make sure the columns flagged as 'pk' are added to a key named 'primary'
+	if (!defined $self->keys->{primary}) {
+		my @pk= map $_->{name}, sort { $a->{pk} <=> $b->{pk} or $a->{idx} <=> $b->{idx} }
+			grep $_->{pk}, values %{ $self->columns };
+		$self->keys->{primary}= { cols => \@pk, unique => 1 }
+			if @pk;
+	}
+	
+	# Make sure names of all keys are listed in the info
+	$self->keys->{$_}{name}= $_
+		for keys %{ $self->keys };
+	
 	# Convert "fk" found in the columns into foreign key relations
 	for my $col (grep $_->{fk}, values %{ $self->columns }) {
+		my ($peer_table, $peer_column)= !ref $col->{fk}? split('.',$col->{fk}) : @{$col->{fk}};
+		defined $peer_table && length $peer_table && defined $peer_column && length $peer_column
+			or croak "Expected column fk to be an arrayref ['table'=>'column'] or scalar 'table.column'";
 		# The column and relation can have the same name.
 		# If the user supplies a scalar for this name, it goes into the column.
 		# If they supply a hashref for this name, it will find the relation and
@@ -157,23 +181,12 @@ sub BUILD {
 		$self->{relations}{$col->{name}}= {
 			name => $col->{name},
 			cols => [ $col->{name} ],
-			peer => $col->{fk}[0],
-			peer_cols => [ $col->{fk}[1] ],
+			peer => $peer_table,
+			peer_cols => [ $peer_column ],
 			is_fk => 1,
-			cardinality => $self->is_unique_key($col->{name})? '1:1' : 'N:1',
+			cardinality => $self->has_unique_key($col->{name})? '1:1' : 'N:1',
 		};
 	}
-}
-
-sub _build_keys {
-	my $self= shift;
-	# No primary key was given.  Iterate the list of columns in column order
-	# and collect any with 'pk' set on them.
-	return [
-		map $_->{name},
-		sort { $a->{pk} <=> $b->{pk} or $a->{idx} <=> $b->{idx} }
-		grep $_->{pk}, values %{ $self->columns }
-	];
 }
 
 sub _build_column_order {
@@ -184,7 +197,7 @@ sub _build_column_order {
 			# idx is authoritative
 			defined $a->{idx} && defined $b->{idx} && $a->{idx} <=> $b->{idx}
 			# else columns with a pk come first, in order of the value of pk
-			or (defined $b->{pk} <=> defined $a->{pk} or $a->{pk} <=> $b->{pk})
+			or ($a->{pk}||0x7FFFFFFF) <=> ($b->{pk}||0x7FFFFFFF)
 			# else sort by name
 			or $a->{name} cmp $b->{name}
 		} values %{ $self->columns }
@@ -198,7 +211,7 @@ sub _coerce_columns {
 		: croak "Expected an arrayref or hashref for 'columns'";
 	for my $name (keys %cols) {
 		# If the value is not a hashref, then it is the default generator
-		$cols{$name}= { fill => $cols{name} }
+		$cols{$name}= { fill => $cols{$name} }
 			if ref $cols{$name} ne 'HASH';
 		$cols{$name}{name}= $name;
 	}
@@ -210,6 +223,42 @@ sub _coerce_columns {
 	}
 	
 	return \%cols;
+}
+
+=head1 METHODS
+
+=head2 add_rows
+
+=cut
+
+sub add_rows {
+	my $self= shift;
+	my @rows= @_ == 1 && ref $_[0] eq 'ARRAY'? @{ $_[0] } : @_;
+	...
+}
+
+=head2 has_unique_key
+
+  $key_info= $table->has_unique_key(@column_name_list);
+
+Return the info hashref of a key in C<< $table->keys >> whose C<< ->{cols} >> are the same
+(in any order) as the list of columns given and where C<< ->{unique} >> is true.
+This only returns the first match.  It returns C<undef> if none of the unique keys match.
+
+=cut
+
+has _unique_key_lookup  => is => 'lazy';
+sub _build__unique_key_lookup {
+	my $self= shift;
+	return {
+		map { join("\0", sort @{$_->{cols}}) => $_ }
+			grep $_->{unique}, values %{ $self->keys }
+	};
+}
+sub has_unique_key {
+	my $table= shift;
+	my @cols= @_ == 1 && ref $_[0] eq 'ARRAY'? @{ $_[0] } : @_;
+	$table->_unique_key_lookup->{join("\0", sort @cols)};
 }
 
 1;

@@ -19,6 +19,41 @@ my @tests= (
 			call column_order => [ 'a', 'b' ];
 			call primary_key => [ 'a' ];
 			call relations => {};
+			call keys => {
+				primary => {
+					name => 'primary',
+					cols => [ 'a' ],
+					unique => 1,
+				}
+			};
+		}
+	],
+	[
+		[
+			name => 'fill_spec_only',
+			columns => {
+				a => 'x',
+				b => \'#',
+				c => 'z',
+			},
+			primary_key => 'c',
+		],
+		object {
+			call columns => {
+				a => { name => 'a', fill => 'x' },
+				b => { name => 'b', fill => \'#' },
+				c => { name => 'c', fill => 'z', pk => 1 },
+			};
+			call column_order => [ 'c', 'a', 'b' ];
+			call primary_key => [ 'c' ];
+			call relations => {};
+			call keys => {
+				primary => {
+					name => 'primary',
+					cols => ['c'],
+					unique => 1
+				}
+			};
 		}
 	],
 );

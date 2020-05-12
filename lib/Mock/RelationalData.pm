@@ -24,15 +24,15 @@ not-null fields to have values in order to conduct the test.
     
     # or define tables on your own
     artist => [
-      id        => { type => 'integer',     default => 'auto_inc', pk => 1 },
-      name      => { type => 'varchar(99)', default => 'words' },
+      id        => { type => 'integer',     fill => 'auto_inc', pk => 1 },
+      name      => { type => 'varchar(99)', fill => 'words' },
       formed    => { type => 'datetime' },
       disbanded => { type => 'datetime', null => 1 },
     ],
     album => [
-      id        => { type => 'integer',     default => 'auto_inc', pk => 1 },
-      artist_id => { type => 'integer',     fk => [artist => 'id'] },
-      name      => { type => 'varchar(99)', default => 'words' },
+      id        => { type => 'integer',     fill => 'auto_inc', pk => 1 },
+      artist_id => { type => 'integer',     fk => 'artist.id' },
+      name      => { type => 'varchar(99)', fill => 'words' },
       released  => { type => 'datetime',    null => 1 },
     ],
   );
