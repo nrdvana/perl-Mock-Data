@@ -227,15 +227,6 @@ sub _coerce_columns {
 
 =head1 METHODS
 
-=head2 add_rows
-
-=cut
-
-sub add_rows {
-	my $self= shift;
-	my @rows= @_ == 1 && ref $_[0] eq 'ARRAY'? @{ $_[0] } : @_;
-	...
-}
 
 =head2 has_unique_key
 
@@ -259,6 +250,87 @@ sub has_unique_key {
 	my $table= shift;
 	my @cols= @_ == 1 && ref $_[0] eq 'ARRAY'? @{ $_[0] } : @_;
 	$table->_unique_key_lookup->{join("\0", sort @cols)};
+}
+
+sub populate {
+	my $self= shift;
+	my $tname= $self->name;
+	my $rows= @_ == 1 && ref $_[0] eq 'ARRAY'? $_[0] : [ @_ ];
+	# If given tabular notation, with list of columns on first row, convert to normal hashrefs
+	# Some day this could be reversed, storing everything as the more efficient arrayref notation,
+	# but that is more effort and harder to debug.
+	if (ref $rows->[0] eq 'ARRAY') {
+		my $cols= shift @$rows;
+		for (@$rows) {
+			my %row;
+			@row{@$cols}= @$_;
+			$_= \%row;
+		}
+	}
+	my $cols= $self->columns;
+	my $rels= $self->relations;
+	my $mock_cache= $self->_mock_cache;
+	for my $row (@$rows) {
+		my %related_rows;
+		# The user could supply a mix of column or relations.  Verify that the columns
+		# all exist, and if a relation, find/create the related data and then link back
+		# the foreign key column.
+		for (keys %$row) {
+			# Special handling if user provides data for a relation
+			if ($rels->{$_} && (!$cols->{$_} || ref $row->{$_} eq 'HASH' || ref $row->{$_} eq 'ARRAY')) {
+				$related_rows{$_}= delete $row->{$_};
+			}
+			elsif (!$cols->{$_}) {
+				croak "No such column or relation '$_' for table '$tname'";
+			}
+		}
+		# Now apply mock values for every mockable column
+		for (keys %$mock_cache) {
+			# TODO: exclude foreign keys when $related_rows given for that foreign key
+			$row->{$_}= $mock_cache->{$_}->($table, $cols->{$_})
+				unless exists $row->{$_};
+		}
+		relation_loop: for my $rel (values %$rels) {
+			if (my $rval= $related_rows{$rel->{name}}) {
+				my @peer_rows= ref $rval eq 'ARRAY'? @$rval : ( $rval );
+				# If the relation uses columns from this table which are defined in this row,
+				# include this row's values into the data that is being find-or-created.
+				for (0 .. $#{$rel->{cols}}) {
+					my $col= $rel->{cols}[$_];
+					my $peer_col= $rel->{peer_cols}[$_];
+					for (@peer_rows) {
+						$_->{$peer_col}= $row->{$col} unless exists $_->{$peer_col};
+					}
+				}
+				# find-or-create the records in the related table.
+				my $peer_table= $self->owner->tables->{$rel->{peer}}
+					or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table $tname";
+				$peer_table->find_or_create(\@peer_rows);
+				# If this record did not define one or more of the values for the relation,
+				# pull them from the related record.
+				for (0 .. $#{$rel->{cols}}) {
+					my $col= $rel->{cols}[$_];
+					my $peer_col= $rel->{peer_cols}[$_];
+					$row->{$col}= $peer_rows[0]{$peer_col}
+						unless exists $row->{$col};
+				}
+			}
+			elsif ($rel->{is_fk}) {
+				my %fk;
+				for (0..$#{ $rel->{cols} }) {
+					my $col= $rel->{cols}[$_];
+					my $peer_col= $rel->{peer_cols}[$_];
+					# Can't exist unless the FK is fully not-null
+					next relation_loop unless defined $row->{$col};
+					$fk{$peer_col}= $row->{$col};
+				}
+				my $peer_table= $self->owner->tables->{$rel->{peer}}
+					or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table $tname";
+				$peer_table->find_or_create(\%fk);
+			}
+		}
+		$self->add_row($row);
+	}
 }
 
 1;
