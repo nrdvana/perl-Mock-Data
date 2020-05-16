@@ -9,10 +9,17 @@ It stores both the schema definition, and the rows that have been generated so f
 
 =head1 ATTRIBUTES
 
+=head2 parent
+
+A reference to the L<Mock::RelationalData> which this table belongs to.  This is a weak
+reference.
+
 =head2 name
 
 Name of the table (or for DBIC, the name of the Result Source).  This module does not generate
-any SQL, so this is for your information only and does not need to match your database.
+any SQL, so this name does not need to match your actual database schema.  The name does get
+used by relations to indicate which other table in the L</parent> they refer to, and it shows
+up in the output when you export the aggregate data of the L</parent>.
 
 =head2 columns
 
@@ -29,19 +36,19 @@ This specifies the order of the columns if the C<column_order> attribute is not 
 
 =item HashRef
 
-This does not specify an order of the columns.  The C<column_order> attribute will get its
-default value if not supplied.
+This specifies the column info without an ordering.  Use in conjunction with the C<column_order>
+attribute if you care about the column order.
 
   { $column_name => \%column_info, ... }
 
-=item Scalar instead of column info
+=item Scalar instead of %column_info
 
-If the C<%column_info> portion is a scalar or scalar ref, it is assumed to be the C<fill> field
-of the C<%column_info>.
+If the C<%column_info> portion is a scalar, scalar ref, or coderef, it is assumed to be the
+C<mock> field of the C<%column_info>.
 
-  [ $column_name => $fill, ... ]
+  [ $column_name => $mock_tpl, ... ]
   # becomes
-  { $column_name => { name => $column_name, fill => $fill } }
+  { $column_name => { name => $column_name, mock => $mock_tpl } }
 
 =back
 
@@ -109,6 +116,7 @@ row arrayrefs.
 
 =cut
 
+has parent       => is => 'ro', required => 1, weak_ref => 1;
 has name         => is => 'ro', required => 1;
 has columns      => is => 'ro', required => 1, coerce => \&_coerce_columns;
 has column_order => is => 'lazy';
@@ -128,6 +136,7 @@ sub _pk_str {
 }
 
 our %_known_ctor_args= map +($_=>1), qw(
+	parent
 	name
 	columns
 	column_order
@@ -211,7 +220,7 @@ sub _coerce_columns {
 		: croak "Expected an arrayref or hashref for 'columns'";
 	for my $name (keys %cols) {
 		# If the value is not a hashref, then it is the default generator
-		$cols{$name}= { fill => $cols{$name} }
+		$cols{$name}= { mock => $cols{$name} }
 			if ref $cols{$name} ne 'HASH';
 		$cols{$name}{name}= $name;
 	}
@@ -287,7 +296,7 @@ sub populate {
 		# Now apply mock values for every mockable column
 		for (keys %$mock_cache) {
 			# TODO: exclude foreign keys when $related_rows given for that foreign key
-			$row->{$_}= $mock_cache->{$_}->($table, $cols->{$_})
+			$row->{$_}= $mock_cache->{$_}->($self, $cols->{$_})
 				unless exists $row->{$_};
 		}
 		relation_loop: for my $rel (values %$rels) {

@@ -1,5 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
+use Mock::RelationalData;
 use Mock::RelationalData::Table;
 
 my @tests= (
@@ -7,14 +8,14 @@ my @tests= (
 		[
 			name => 'basic_table',
 			columns => [
-				a => { type => 'varchar', fill => '', pk => 1 },
-				b => { fill => 4 },
+				a => { type => 'varchar', mock => '', pk => 1 },
+				b => { mock => 4 },
 			]
 		],
 		object {
 			call columns => {
-				a => { name => 'a', idx => 0, type => 'varchar', fill => '', pk => 1 },
-				b => { name => 'b', idx => 1, fill => 4 },
+				a => { name => 'a', idx => 0, type => 'varchar', mock => '', pk => 1 },
+				b => { name => 'b', idx => 1, mock => 4 },
 			};
 			call column_order => [ 'a', 'b' ];
 			call primary_key => [ 'a' ];
@@ -30,7 +31,7 @@ my @tests= (
 	],
 	[
 		[
-			name => 'fill_spec_only',
+			name => 'mock_spec_only',
 			columns => {
 				a => 'x',
 				b => \'#',
@@ -40,9 +41,9 @@ my @tests= (
 		],
 		object {
 			call columns => {
-				a => { name => 'a', fill => 'x' },
-				b => { name => 'b', fill => \'#' },
-				c => { name => 'c', fill => 'z', pk => 1 },
+				a => { name => 'a', mock => 'x' },
+				b => { name => 'b', mock => \'#' },
+				c => { name => 'c', mock => 'z', pk => 1 },
 			};
 			call column_order => [ 'c', 'a', 'b' ];
 			call primary_key => [ 'c' ];
@@ -57,9 +58,11 @@ my @tests= (
 		}
 	],
 );
+
+my $reldata= Mock::RelationalData->new();
 for (@tests) {
 	my ($spec, $expected)= @$_;
-	my $t= Mock::RelationalData::Table->new(@$spec);
+	my $t= Mock::RelationalData::Table->new(parent => $reldata, @$spec);
 	is( $t, $expected, $t->name );
 }
 

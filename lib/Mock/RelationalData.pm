@@ -1,5 +1,6 @@
 package Mock::RelationalData;
 use Moo 2;
+use Carp;
 
 =head1 SYNOPSIS
 
@@ -24,15 +25,15 @@ not-null fields to have values in order to conduct the test.
     
     # or define tables on your own
     artist => [
-      id        => { type => 'integer',     fill => 'auto_inc', pk => 1 },
-      name      => { type => 'varchar(99)', fill => 'words' },
+      id        => { type => 'integer',     mock => 'auto_inc', pk => 1 },
+      name      => { type => 'varchar(99)', mock => 'words' },
       formed    => { type => 'datetime' },
       disbanded => { type => 'datetime', null => 1 },
     ],
     album => [
-      id        => { type => 'integer',     fill => 'auto_inc', pk => 1 },
+      id        => { type => 'integer',     mock => 'auto_inc', pk => 1 },
       artist_id => { type => 'integer',     fk => 'artist.id' },
-      name      => { type => 'varchar(99)', fill => 'words' },
+      name      => { type => 'varchar(99)', mock => 'words' },
       released  => { type => 'datetime',    null => 1 },
     ],
   );
@@ -61,8 +62,8 @@ familiar with all the details of that test data set, and in a large project, the
 test data may become fairly large.  It also becomes a large maintenance burden to
 keep the test data and all the unit tests that depend on it up to date.
 
-The purpose of this module is to make it so easy to declare data *in* the unit
-test that you can keep the unit test self-contained.  Consider the following
+The purpose of this module is to make it easier to declare data in the unit
+test so that you can keep the unit test self-contained.  Consider the following
 generic example as it might be written with an external data set:
 
   use MyTestUtils 'my_populate_dataset1';
@@ -181,16 +182,16 @@ sub define_table {
 	$self->tables->{$table->name}= $table;
 }
 
-=head2 set_column_fillers
+=head2 set_column_mock
 
-You can declare the C<fill> attribute on each column you define in L</define_table>, however if
+You can declare the C<mock> attribute on each column you define in L</define_table>, however if
 you loaded your schema from a C<DBIx::Class::Schema> you can't redefine the table, and probably
-just want to add the C<fill> attribute to the existing columns.  This method does that.
+just want to add the C<mock> attribute to the existing columns.  This method does that.
 
-  $reldata->set_column_fillers(
+  $reldata->set_column_mock(
     table1 => {
-      col1 => $fill_spec,
-      col2 => $fill_spec,
+      col1 => $mock_spec,
+      col2 => $mock_spec,
     },
     table2 => { ... },
     ...
@@ -198,22 +199,44 @@ just want to add the C<fill> attribute to the existing columns.  This method doe
 
 =cut
 
-sub set_column_fillers {
+sub set_column_mock {
 	my $self= shift;
-	while (my ($table_name, $colfill)= splice @_, 0, 2) {
+	while (my ($table_name, $colmock)= splice @_, 0, 2) {
 		my $table= $self->tables->{$table_name} or croak "Table '$table_name' is not declared";
-		for my $col (keys %$colfill) {
+		for my $col (keys %$colmock) {
 			defined $table->columns->{$col} or croak "Column '$table_name'.'$col' does not exist";
-			$table->columns->{$col}{fill}= $colfill->{$col};
+			$table->columns->{$col}{mock}= $colmock->{$col};
 		}
 	}
 }
 
-=head2 add_records
+=head2 populate
+
+  $reldata->populate(table1 => [ \%record1, \%record2, ... ], ...);
+  $reldata->populate(table1 => [ \@columns, \@record1, \@record2 ], ...);
+
+Like L<DBIx::Class::ResultSource/populate>, this adds rows to tables (in memory).
+The records can either be specified as an array of hashrefs, or as an array of arrayrefs where
+the first arrayref lists the column names and the remainder list the column values in the same
+order.
+
+This will die if the new records violate a unique key on the table.
+
+Note that this modifies the table objects, so if you want to re-use the declared schema for
+other data sets, you should L</clone> it first.
 
 =cut
 
-sub add_records {
+sub populate {
+	my $self= shift;
+	my @ret;
+	while (@_) {
+		my $tname= shift;
+		my $table= $self->tables->{$tname}
+			or croak "No such table '$tname'";
+		$table->populate(shift);
+	}
+	return @ret;
 }
 
 sub _dbic_rsrc_to_table_spec {
