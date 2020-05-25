@@ -3,6 +3,14 @@ use Test2::V0;
 use Mock::RelationalData;
 use Mock::RelationalData::Table;
 
+=head1 DESCRIPTION
+
+This unit test checks the constructor and attributes of the Table
+objects.  It does not test the larger algorithms that happen through
+the table object.
+
+=cut
+
 my @tests= (
 	[
 		[
