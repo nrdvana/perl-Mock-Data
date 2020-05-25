@@ -286,8 +286,8 @@ sub find_or_create {
 	# Search for any key which this row has the columns for.  Check unique keys first.
 	for (sort { !$a->{unique} <=> !$b->{unique} } values %{ $self->keys }) {
 		# kv is undef if any required column is missing
-		if (defined (my $kv= _key_of_row($row, $_->{cols}))) {
-			my $existing= $self->_row_by_key->{$kv};
+		if (defined (my $kv= $self->_key_of_row($row, $_->{cols}))) {
+			my $existing= $self->_row_by_key->{$_->{name}}{$kv};
 			return $existing if defined $existing;
 		}
 	}

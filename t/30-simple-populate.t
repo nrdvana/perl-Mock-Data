@@ -6,14 +6,8 @@ use Mock::RelationalData::Table;
 =head1 DESCRIPTION
 
 This unit test verifies that row data gets added correctly to a single
-table (no joins are considered).
-
-The tests are given as a table constructor arguments hash, followed by
-a list of row insertion tests each described by a case name with arguments
-of the row and how to verify it.
-
-(it would make sense to tree this up further, but then the indent level
-would get annoying)
+table (no joins are considered) and that the table's indexes get updated
+correctly.
 
 =cut
 
@@ -30,24 +24,33 @@ my @tests= (
 		# Row tests
 		'pk only' => {
 			row   => { a => 1 },
-			check => hash { field a => 1; field b => 'b-default'; field c => 'c-default'; },
+			check => { a => 1, b => 'b-default', c => 'c-default' },
 			keys  => { primary => 1 },
 		},
 		'deliberate NULL' => {
 			row   => { a => 2, b => undef },
-			check => hash { field a => 2; field b => undef; field c => 'c-default'; },
+			check => { a => 2, b => undef, c => 'c-default' },
 			keys  => { primary => 2 },
 		},
 		'pk only' => {
 			row   => { a => 3 },
-			check => hash { field a => 3; field b => 'b-default'; field c => 'c-default'; },
+			check => { a => 3, b => 'b-default', c => 'c-default' },
 			keys  => { primary => 3 },
 		},
 		'dup pk' => {
 			row   => { a => 3 },
 			error => qr/duplicate/,
 		},
-	]
+	],
+	check => object {
+		call rows => [
+			hash { field a => 1; etc },
+			hash { field a => 2; etc },
+			hash { field a => 3; etc },
+		];
+		call [ find_or_create => { a => 2 } ] => hash { field b => undef; etc };
+		call [ find_or_create => { a => 3 } ] => hash { field b => 'b-default'; etc };
+	},
 },
 # Table with 2 unique keys and one non-unique key
 {
@@ -65,22 +68,22 @@ my @tests= (
 	row_tests => [
 		'empty row' => {
 			row   => {},
-			check => hash { field a => 'first'; field b => 'b-default'; field c => 'c-default'; },
+			check => { a => 'first', b => 'b-default', c => 'c-default' },
 			keys  => { primary => 'first', bc_key => "b-default\0c-default", c_key => 'c-default' },
 		},
 		'distinct row' => {
 			row   => { a => 'second', b => 2, c => 2 },
-			check => hash { field a => 'second'; field b => 2; field c => 2; },
+			check => { a => 'second', b => 2, c => 2 },
 			keys  => { primary => 'second', bc_key => "2\x002", c_key => '2' },
 		},
 		'dup of c' => {
 			row   => { a => 'third', b => 3 },
-			check => hash { field a => 'third'; field b => 3; field c => 'c-default' },
+			check => { a => 'third', b => 3, c => 'c-default' },
 			keys  => { primary => 'third', bc_key => "3\0c-default", c_key => 'c-default' },
 		},
 		'NULL b value' => {
 			row   => { a => 'fourth', b => undef, c => 3 },
-			check => hash { field a => 'fourth'; field b => undef; field c => 3; },
+			check => { a => 'fourth', b => undef, c => 3 },
 			keys  => { primary => 'fourth', c_key => '3' },
 		},
 		'dup a value' => {
@@ -91,13 +94,26 @@ my @tests= (
 			row   => { a => 2 },
 			error => qr/duplicate.*?bc_key/,
 		},
-	]
+	],
+	check => object {
+		call rows => [
+			hash { field a => 'first'; etc },
+			hash { field a => 'second'; etc },
+			hash { field a => 'third'; etc },
+			hash { field a => 'fourth'; etc },
+		];
+		call [ find_or_create => { a => 'third' } ] => hash { field b => 3; etc };
+		call [ find_or_create => { b => 2, c => 2 } ] => hash { field a => 'second'; etc };
+		# non-unique key just returns most recent row with that value
+		call [ find_or_create => { c => 'c-default' } ] => hash { field a => 'third'; etc };
+	},
 }
 );
 
 my $reldata= Mock::RelationalData->new;
 for my $spec (@tests) {
 	my @rowtests= @{ delete $spec->{row_tests} };
+	my $check= delete $spec->{check};
 	my $t= Mock::RelationalData::Table->new(parent => $reldata, %$spec);
 	subtest $spec->{name} => sub {
 		# Iterate the $name=>\%info pairs until end of list or until next table specification
@@ -121,6 +137,7 @@ for my $spec (@tests) {
 				}
 			}
 		}
+		is( $t, $check );
 	};
 }
 
