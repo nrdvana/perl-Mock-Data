@@ -207,8 +207,41 @@ sub set_column_mock {
 			defined $table->columns->{$col} or croak "Column '$table_name'.'$col' does not exist";
 			$table->columns->{$col}{mock}= $colmock->{$col};
 		}
+		$table->_clear_mock_cache;
 	}
 }
+
+sub get_mock_generator {
+	my ($self, $spec)= @_;
+	return sub { $spec } unless ref $spec;
+	return $spec if ref $spec eq 'CODE';
+	return $self->generators->{$$spec} || croak "No such generator $$spec"
+		if ref $spec eq 'SCALAR' && $$spec =~ /^\w+$/;
+	return sub {
+		my ($table, $col)= @_;
+		$table->parent->get_mock_value($spec, $table, $col)
+	}
+}
+
+#sub get_mock_value {
+#	my ($self, $spec, $table, $col)= @_;
+#	return $spec unless ref $spec;
+#	if (ref $spec eq 'SCALAR') {
+#		
+#}
+#
+#sub get_mock_generator_for_column {
+#	my ($self, $table, $col)= @_;
+#	if (exists $col->{mock}) {
+#		return $self->get_mock_generator($col->{mock});
+#	}
+#	elsif (defined $col->{data_type}) {
+#		...
+#	}
+#	else {
+#		return undef;
+#	}
+#}
 
 =head2 populate
 

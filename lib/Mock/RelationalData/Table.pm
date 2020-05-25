@@ -125,13 +125,13 @@ has keys         => is => 'ro', default => sub { +{} };
 has relations    => is => 'ro', default => sub { +{} };
 
 has rows         => is => 'rw', init_arg => undef, default => sub { [] };
-has row_by_key   => is => 'rw', init_arg => undef, default => sub { +{} };
+has _row_by_key  => is => 'rw', init_arg => undef, default => sub { +{} };
 
-sub _pk_str {
-	my ($self, $record)= @_;
+sub _key_of_row {
+	my ($self, $record, $key_cols)= @_;
 	join "\0", grep(
-		(defined $_ || croak "Record does not define all columns of primary key for table ".$self->name),
-		@{$record}[@{ $self->primary_key }]
+		(defined $_ || return undef),
+		@{$record}{@$key_cols}
 	);
 }
 
@@ -236,7 +236,6 @@ sub _coerce_columns {
 
 =head1 METHODS
 
-
 =head2 has_unique_key
 
   $key_info= $table->has_unique_key(@column_name_list);
@@ -270,76 +269,139 @@ sub populate {
 	# but that is more effort and harder to debug.
 	if (ref $rows->[0] eq 'ARRAY') {
 		my $cols= shift @$rows;
-		for (@$rows) {
-			my %row;
-			@row{@$cols}= @$_;
-			$_= \%row;
+		for my $row (@$rows) {
+			$row= $self->add_row(map +( $_ => $row->{$_} ), @$cols);
 		}
 	}
+	else {
+		for my $row (@$rows) {
+			$row= $self->add_row(%$row);
+		}
+	}
+	return $rows; # array has been modified to contain the expanded row hashrefs
+}
+
+sub find_or_create {
+	my ($self, $row)= @_;
+	# Search for any key which this row has the columns for.  Check unique keys first.
+	for (sort { !$a->{unique} <=> !$b->{unique} } values %{ $self->keys }) {
+		# kv is undef if any required column is missing
+		if (defined (my $kv= _key_of_row($row, $_->{cols}))) {
+			my $existing= $self->_row_by_key->{$kv};
+			return $existing if defined $existing;
+		}
+	}
+	# Not found.  Create a new one.
+	return $self->add_row($row);
+}
+
+has _mock_cache => is => 'lazy';
+sub _build__mock_cache {
+	my $self= shift;
+	my %mockers;
+	for my $col (values %{ $self->columns }) {
+		if (exists $col->{mock}) {
+			$mockers{$col->{name}}= $self->parent->get_mock_generator($col->{mock});
+		}
+		elsif (!$col->{is_nullable} && !defined $col->{default_value}) {
+			my $tname= $self->name;
+			local $@;
+			$mockers{$col->{name}}= eval { $self->parent->get_mock_generator_for_col($col) }
+				|| sub { "Must specify value for column $col->{name} of table $tname; no mocker specified" };
+		}
+		# Else no need for a mocker- the column will default to NULL or DB will give it a default
+	}
+	\%mockers;
+}
+
+sub add_row {
+	my $self= shift;
+	my $row= { @_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]} : @_ };
 	my $cols= $self->columns;
 	my $rels= $self->relations;
+	my @key_list= sort { !$a->{unique} <=> !$b->{unique} } values %{ $self->keys };
 	my $mock_cache= $self->_mock_cache;
-	for my $row (@$rows) {
-		my %related_rows;
-		# The user could supply a mix of column or relations.  Verify that the columns
-		# all exist, and if a relation, find/create the related data and then link back
-		# the foreign key column.
-		for (keys %$row) {
-			# Special handling if user provides data for a relation
-			if ($rels->{$_} && (!$cols->{$_} || ref $row->{$_} eq 'HASH' || ref $row->{$_} eq 'ARRAY')) {
-				$related_rows{$_}= delete $row->{$_};
-			}
-			elsif (!$cols->{$_}) {
-				croak "No such column or relation '$_' for table '$tname'";
-			}
+	my %related_rows;
+
+	# The user could supply a mix of column or relations.  Verify that the columns
+	# all exist, and if a relation, find/create the related data and then link back
+	# the foreign key column.
+	for (keys %$row) {
+		# Special handling if user provides data for a relation
+		if ($rels->{$_} && (!$cols->{$_} || ref $row->{$_} eq 'HASH' || ref $row->{$_} eq 'ARRAY')) {
+			$related_rows{$_}= delete $row->{$_};
 		}
-		# Now apply mock values for every mockable column
-		for (keys %$mock_cache) {
-			# TODO: exclude foreign keys when $related_rows given for that foreign key
-			$row->{$_}= $mock_cache->{$_}->($self, $cols->{$_})
-				unless exists $row->{$_};
+		elsif (!$cols->{$_}) {
+			croak "No such column or relation '$_' for table ".$self->name;
 		}
-		relation_loop: for my $rel (values %$rels) {
-			if (my $rval= $related_rows{$rel->{name}}) {
-				my @peer_rows= ref $rval eq 'ARRAY'? @$rval : ( $rval );
-				# If the relation uses columns from this table which are defined in this row,
-				# include this row's values into the data that is being find-or-created.
-				for (0 .. $#{$rel->{cols}}) {
-					my $col= $rel->{cols}[$_];
-					my $peer_col= $rel->{peer_cols}[$_];
-					for (@peer_rows) {
-						$_->{$peer_col}= $row->{$col} unless exists $_->{$peer_col};
-					}
-				}
-				# find-or-create the records in the related table.
-				my $peer_table= $self->owner->tables->{$rel->{peer}}
-					or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table $tname";
-				$peer_table->find_or_create(\@peer_rows);
-				# If this record did not define one or more of the values for the relation,
-				# pull them from the related record.
-				for (0 .. $#{$rel->{cols}}) {
-					my $col= $rel->{cols}[$_];
-					my $peer_col= $rel->{peer_cols}[$_];
-					$row->{$col}= $peer_rows[0]{$peer_col}
-						unless exists $row->{$col};
-				}
-			}
-			elsif ($rel->{is_fk}) {
-				my %fk;
-				for (0..$#{ $rel->{cols} }) {
-					my $col= $rel->{cols}[$_];
-					my $peer_col= $rel->{peer_cols}[$_];
-					# Can't exist unless the FK is fully not-null
-					next relation_loop unless defined $row->{$col};
-					$fk{$peer_col}= $row->{$col};
-				}
-				my $peer_table= $self->owner->tables->{$rel->{peer}}
-					or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table $tname";
-				$peer_table->find_or_create(\%fk);
-			}
-		}
-		$self->add_row($row);
 	}
+
+	# Now apply mock values for every mockable column
+	for (keys %$mock_cache) {
+		# TODO: exclude foreign keys when $related_rows given for that foreign key
+		$row->{$_}= $mock_cache->{$_}->($self, $cols->{$_})
+			unless exists $row->{$_};
+	}
+
+	relation_loop: for my $rel (values %$rels) {
+		if (my $rval= $related_rows{$rel->{name}}) {
+			my @peer_rows= ref $rval eq 'ARRAY'? @$rval : ( $rval );
+			# If the relation uses columns from this table which are defined in this row,
+			# include this row's values into the data that is being find-or-created.
+			for (0 .. $#{$rel->{cols}}) {
+				my $col= $rel->{cols}[$_];
+				my $peer_col= $rel->{peer_cols}[$_];
+				for (@peer_rows) {
+					$_->{$peer_col}= $row->{$col} unless exists $_->{$peer_col};
+				}
+			}
+			# find-or-create the records in the related table.
+			my $peer_table= $self->parent->tables->{$rel->{peer}}
+				or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table ".$self->name;
+			$peer_table->find_or_create(\@peer_rows);
+			# If this record did not define one or more of the values for the relation,
+			# pull them from the related record.
+			for (0 .. $#{$rel->{cols}}) {
+				my $col= $rel->{cols}[$_];
+				my $peer_col= $rel->{peer_cols}[$_];
+				$row->{$col}= $peer_rows[0]{$peer_col}
+					unless exists $row->{$col};
+			}
+		}
+		elsif ($rel->{is_fk}) {
+			my %fk;
+			for (0..$#{ $rel->{cols} }) {
+				my $col= $rel->{cols}[$_];
+				my $peer_col= $rel->{peer_cols}[$_];
+				# Can't exist unless the FK is fully not-null
+				next relation_loop unless defined $row->{$col};
+				$fk{$peer_col}= $row->{$col};
+			}
+			my $peer_table= $self->parent->tables->{$rel->{peer}}
+				or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table ".$self->name;
+			$peer_table->find_or_create(\%fk);
+		}
+	}
+	
+	# For each key, add the row to that key's index.  If the key is unique, verify
+	# that the row isn't a duplicate.
+	my %kvs;
+	for my $key (@key_list) {
+		if (defined (my $kv= $self->_key_of_row($row, $key->{cols}))) {
+			if ($key->{unique} && $self->_row_by_key->{$key->{name}}{$kv}) {
+				# whoops, duplicate.  Remove any references added to this row so far in this loop
+				delete $self->_row_by_key->{$_}{$kvs{$_}} for keys %kvs;
+				$kv =~ s/\0/,/g;
+				croak "Attempt to add_row with duplicate key '$key->{name}': ($kv)";
+			}
+			$self->_row_by_key->{$key->{name}}{$kv}= $row;
+			$kvs{$key->{name}}= $kv;
+		}
+	}
+
+	# Row is official now
+	push @{ $self->rows }, $row;
+	return $row;
 }
 
 1;
