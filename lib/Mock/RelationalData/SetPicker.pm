@@ -9,7 +9,7 @@ use Mock::RelationalData::Gen 'compile_generator';
   $value= $picker->();   # 25% chance of each of the items
   
   $picker= Mock::RelationalData::SetPicker
-	->new_weighted( 'a' => 1, 'b' => 9 );
+	->new_weighted( 1 => 'a', 9 => 'b' );
   $value= $picker->();   # 10% chance of 'a', 90% chance of 'b'
   
   $picker= Mock::RelationalData::SetPicker
@@ -39,7 +39,7 @@ are on an arbitrary scale chosen by the user, such that the sum of them adds up 
 
 =cut
 
-has items       => is => 'rw', required => 1, coerce => \&_coerce_items;
+has items       => is => 'rw', required => 1;
 has weights     => is => 'rw';
 has _odds_table => is => 'lazy';
 
@@ -48,11 +48,18 @@ has _odds_table => is => 'lazy';
 =head2 new
 
 Standard Moo constructor, accepting attribute initial values.  The values of C<items>
-must be scalars or coderefs.  (i.e. the output of C<compile_generator>)
+must be scalars or coderefs (generators).
 
 =head2 new_uniform
 
-  $picker= Mock::RelationalData::SetPicker->new_uniform(@items);
+  $picker= $class->new_uniform(@items);
+
+Initialize a C<SetPicker> from a list of items, which must be valid according to L</items>.
+Each item is given a uniform probability.
+
+=head2 new_uniform_tpl
+
+  $picker= $class->new_uniform_tpl(@items);
 
 Construct a C<SetPicker> from a list of items, where each item may be a template or
 other valid specification for C<compile_generator>.  Each item is given a uniform
@@ -60,17 +67,33 @@ probability.
 
 =head2 new_weighted
 
-  $picker= Mock::RelationalData::SetPicker->new_uniform($weight => $item, ...);
+  $picker= $class->new_weighted($weight => $item, ...);
 
 Construct a C<SetPicker> from a list of pairs of weight and item.  Item may be a template
-or other valid specification for C<compile_generator>.
+or other valid specification for C<compile_generator>.  The 
+
+=head2 new_weighted_tpl
+
+  $picker= $class->new_weighted_tpl($weight => $item, ...);
+
+Construct a C<SetPicker> from a list of pairs of weight and item.  Item may be a template
+or other valid specification for C<compile_generator>.  The 
 
 =cut
 
 sub new_uniform {
 	my $class= shift;
-	my $items= @_ == 1 && ref $_[0] eq 'ARRAY'? shift : [ @_ ];
+	my $items= @_ == 1 && ref $_[0] eq 'ARRAY'? shift : [@_];
 	$class->new(items => $items);
+}
+
+sub new_uniform_tpl {
+	my $class= shift;
+	my @items= @_ == 1 && ref $_[0] eq 'ARRAY'? @{shift()} : @_;
+	for (@items) {
+		$_= compile_generator($_) if ref $_ or index($_, '{') >= 0;
+	}
+	$class->new(items => \@items);
 }
 
 sub new_weighted {
@@ -83,12 +106,16 @@ sub new_weighted {
 	$class->new(items => \@items, weights => \@weights);
 }
 
-sub _coerce_items {
-	my $items= shift;
-	for (@$items) {
-		$_= compile_generator($_) if ref $_ or index($_, '{') >= 0;
+sub new_weighted_tpl {
+	my $class= shift;
+	my (@weights, @items);
+	while (@_) {
+		push @weights, shift;
+		my $item= shift;
+		$item= compile_generator($item) if ref $item or index($item, '{') >= 0;
+		push @items, $item;
 	}
-	$items;
+	$class->new(items => \@items, weights => \@weights);
 }
 
 =head2 evaluate
@@ -99,8 +126,6 @@ Return one random item from the set.  This should be called with the reference
 to the RelationalData and optional named argument set for any generator.
 
 =cut
-
-use overload '&{}' => sub { my $self= shift; sub { $self->evaluate(@_) } };
 
 sub evaluate {
 	my $self= shift;
@@ -113,7 +138,7 @@ sub evaluate {
 		my $tbl= $self->_odds_table;
 		my ($min, $max, $r)= (0, $#$items, rand);
 		while ($min+1 < $max) {
-			my $mid= int(($max-$min)/2);
+			my $mid= int(($max+$min)/2);
 			if ($r < $tbl->[$mid]) { $max= $mid-1; }
 			else { $min= $mid; }
 		}
@@ -132,5 +157,14 @@ sub _build__odds_table {
 	my $sum= 0;
 	return [ map { my $x= $sum; $sum += $_; $x/$total } @$weights ]
 }
+
+=head2 as_generator
+
+Return a coderef that exectes L</evaluate>.
+
+=cut
+
+sub as_generator { my $self= shift; sub { $self->evaluate(@_) } };
+use overload '&{}' => \&as_generator;
 
 1;

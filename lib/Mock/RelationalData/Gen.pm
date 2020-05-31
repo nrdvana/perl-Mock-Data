@@ -42,7 +42,9 @@ processed.
 
 sub compile_generator :Export {
 	my $spec= shift;
-	if (!ref $spec) {
+	if (!defined $spec) {
+		return sub { undef; }
+	} elsif (!ref $spec) {
 		return compile_template($spec);
 	} elsif (ref $spec eq 'SCALAR') {
 		return sub { $$spec };
@@ -55,14 +57,54 @@ sub compile_generator :Export {
 	}
 }
 
+=head2 uniform_set
+
+  $generator= uniform_set( @items )
+  $generator= uniform_set( \@items )
+
+Shortcut for L<Mock::RelationalData::SetPicker/new_uniform>.
+Items must be a literal tring or a generator coderef.
+
+=head2 uniform_tpl_set
+
+  $generator= uniform_tpl_set( @tpl_items )
+  $generator= uniform_tpl_set( \@tpl_items )
+
+Shortcut for L<Mock::RelationalData::SetPicker/new_uniform_tpl>.
+Automatically calls L</compile_template> when scalar items contain
+C<< "{...}" >> and recursively wraps arrayrefs.
+
 =head2 weighted_set
 
+  $generator= weighted_set( $weight => $item, ... )
+
 Shortcut for L<Mock::RelationalData::SetPicker/new_weighted>.
+Items must be a literal string or generator coderef.
+
+=head2 weighted_tpl_set
+
+  $generator= weighted_tpl_set( $weight => $tpl_item, ... )
+
+Shortcut for L<Mock::RelationalData::SetPicker/new_weighted_tpl>.
+Automatically calls L</compile_template> when scalar items contain
+C<< "{...}" >> and recursively wraps arrayrefs.
 
 =cut
 
+sub from_set :Export {
+	return Mock::RelationalData::SetPicker->new_uniform(@_);
+}
+
+sub from_tpl_set :Export {
+	return Mock::RelationalData::SetPicker->new_uniform_tpl(@_);
+}
+
 sub weighted_set :Export {
 	return Mock::RelationalData::SetPicker->new_weighted(@_);
+}
+
+sub weighted_tpl_set :Export {
+	return Mock::RelationalData::SetPicker->new_weighted_tpl(@_);
 }
 
 =head2 compile_template
