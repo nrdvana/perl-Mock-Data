@@ -1,16 +1,16 @@
 package Mock::RelationalData::Gen;
 use Exporter::Extensible -exporter_setup => 1;
-use Mock::RelationalData::SetPicker;
 use Carp;
 
 =head1 EXPORTS
 
 =head2 compile_generator
 
-  my $gen_or_scalar= compile_generator($specification);
+  $coderef= compile_generator($specification);
 
-This interprets a generator specification and either returns a coderef or returns
-a plain scalar (constant).
+This interprets a generator specification and returns a coderef of the form:
+
+  sub { my ($reldata, \%args, @args)= @_; ... }
 
 Generator specifications are handled as follows:
 
@@ -18,8 +18,9 @@ Generator specifications are handled as follows:
 
 =item Plain Scalar
 
-If the string contains a C<< {...} >> notation, the template is converted into a coderef.
-Else the sclaar is returned as-is.
+The specification is treated as a template.  Any occurrence of C<< {name ...} >> will be
+converted into a call to a generator of that name.  Any other text will be included as-is
+in the returned string.
 
 =item SCALAR ref
 
@@ -27,23 +28,24 @@ The referenced scalar is returned as-is. (no template substitutions)
 
 =item CODE ref
 
-The code ref is assumed to be a generator and is returned as-is.
+The code ref is assumed to already be a generator and is returned as-is.
 
 =item ARRAY ref
 
 The array is assumed to be equal-weighted items, and are converted to a
-L<Mock::RelationalData::SetPicker>.  Each item is recursively processed.
+L<Mock::RelationalData::SetPicker>.  Each item in the array is recursively
+processed.
 
 =back
 
 =cut
 
-sub compile_generator($) :Export {
+sub compile_generator :Export {
 	my $spec= shift;
 	if (!ref $spec) {
 		return compile_template($spec);
 	} elsif (ref $spec eq 'SCALAR') {
-		return $$spec;
+		return sub { $$spec };
 	} elsif (ref $spec eq 'CODE' or ref($spec)->can('evaluate')) {
 		return $spec;
 	} elsif (ref $spec eq 'ARRAY') {
@@ -103,9 +105,9 @@ sub compile_template :Export {
 	@parts = grep ref || length, @parts;
 	return
 		# No parts? generate empty string.
-		!@parts? ''
+		!@parts? sub { '' }
 		# One part of plain scalar? return it.
-		: @parts == 1 && !ref $parts[0]? $parts[0]
+		: @parts == 1 && !ref $parts[0]? sub { $parts[0] }
 		# Error context requested?
 		: ($flags && $flags->{add_err_context})? sub {
 			my $ret;
@@ -125,18 +127,26 @@ sub compile_template :Export {
 		: sub { join '', map +(ref $_? $_->(@_) : $_), @parts };
 }
 
+# Takes a string like "foo a b c=4" and converts it to
+#         a list like 'foo', { c => 4 }, 'a', 'b'
 sub _parse_template_call {
 	my $spec= shift;
 	(my $gen_name, $spec)= split / +/, $spec, 2;
 	my (%named_args, @list_args);
-	for (split / +/, $spec) {
-		if ($_ =~ /^([^=]+)=(.*)/) {
-			$named_args{$1}= $2;
-		} else {
-			push @list_args, $_;
+	if (defined $spec) {
+		for (split / +/, $spec) {
+			if ($_ =~ /^([^=]+)=(.*)/) {
+				$named_args{$1}= $2;
+			} else {
+				push @list_args, $_;
+			}
 		}
 	}
 	return $gen_name, \%named_args, @list_args;
 }
+
+# SetPicker needs to import functions from this package, so
+# needs required after the exports are defined.
+require Mock::RelationalData::SetPicker;
 
 1;

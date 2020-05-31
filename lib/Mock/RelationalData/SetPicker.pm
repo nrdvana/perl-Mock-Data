@@ -39,7 +39,7 @@ are on an arbitrary scale chosen by the user, such that the sum of them adds up 
 
 =cut
 
-has items       => is => 'rw', required => 1;
+has items       => is => 'rw', required => 1, coerce => \&_coerce_items;
 has weights     => is => 'rw';
 has _odds_table => is => 'lazy';
 
@@ -69,17 +69,26 @@ or other valid specification for C<compile_generator>.
 
 sub new_uniform {
 	my $class= shift;
-	$class->new(items => [ map compile_generator($_), @_ ]);
+	my $items= @_ == 1 && ref $_[0] eq 'ARRAY'? shift : [ @_ ];
+	$class->new(items => $items);
 }
 
 sub new_weighted {
 	my $class= shift;
 	my (@weights, @items);
-	for (@_) {
+	while (@_) {
 		push @weights, shift;
-		push @items, compile_generator(shift);
+		push @items, shift;
 	}
 	$class->new(items => \@items, weights => \@weights);
+}
+
+sub _coerce_items {
+	my $items= shift;
+	for (@$items) {
+		$_= compile_generator($_) if ref $_ or index($_, '{') >= 0;
+	}
+	$items;
 }
 
 =head2 evaluate
@@ -96,17 +105,21 @@ use overload '&{}' => sub { my $self= shift; sub { $self->evaluate(@_) } };
 sub evaluate {
 	my $self= shift;
 	my $items= $self->items;
-	return $items->[ rand( scalar @$items ) ]
-		unless $self->weights;
-	# binary search for the random number
-	my $tbl= $self->_odds_table;
-	my ($min, $max, $r)= (0, $#$items, rand);
-	while ($min+1 < $max) {
-		my $mid= int(($max-$min)/2);
-		if ($r < $tbl->[$mid]) { $max= $mid-1; }
-		else { $min= $mid; }
+	my $pick;
+	if (!$self->weights) {
+		$pick= $items->[ rand( scalar @$items ) ];
+	} else {
+		# binary search for the random number
+		my $tbl= $self->_odds_table;
+		my ($min, $max, $r)= (0, $#$items, rand);
+		while ($min+1 < $max) {
+			my $mid= int(($max-$min)/2);
+			if ($r < $tbl->[$mid]) { $max= $mid-1; }
+			else { $min= $mid; }
+		}
+		$pick= $items->[ ($max > $min && $tbl->[$max] <= $r)? $max : $min ];
 	}
-	return $items->[ ($max > $min && $tbl->[$max] <= $r)? $max : $min ];
+	return ref $pick? $pick->(@_) : $pick;
 }
 
 sub _build__odds_table {
