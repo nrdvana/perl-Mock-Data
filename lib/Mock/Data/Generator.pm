@@ -42,7 +42,7 @@ is to return:
 sub evaluate { Carp::croak "Unimplemented" }
 
 sub compile {
-	my $self= shfit;
+	my $self= shift;
 	sub { $self->evaluate(@_) }
 }
 
@@ -69,10 +69,12 @@ The following optional exported functions are available:
 
 sub import { Mock::Data::Generator::Util->export_to_level(1, @_); }
 
-require Exporter;
-our @Mock::Data::Generator::Util::ISA= ( 'Exporter' );
-our @Mock::Data::Generator::Util::EXPORT_OK=
-	qw( uniform_set weighted_set inflate_template );
+BEGIN {
+	require Exporter;
+	@Mock::Data::Generator::Util::ISA= ( 'Exporter' );
+	@Mock::Data::Generator::Util::EXPORT_OK=
+		qw( uniform_set weighted_set inflate_template );
+}
 
 =head2 uniform_set
 
@@ -117,7 +119,7 @@ our %gen_attrs;
 sub Mock::Data::Generator::Util::inflate_template {
 	my ($tpl, $flags)= @_;
 	# If it does not contain '{', return as-is.  Else parse (and probably cache)
-	return $str if index($tpl, '{') == -1;
+	return $tpl if index($tpl, '{') == -1;
 	my $cmp= _compile_template($tpl, $flags);
 	if (ref $cmp eq 'CODE') {
 		bless $cmp, 'Mock::Data::Generator::SubWrapper';
@@ -126,7 +128,7 @@ sub Mock::Data::Generator::Util::inflate_template {
 	return $cmp;
 }
 
-our @Mock::Data::Generator::SubWrapper::ISA= ( 'Mock::Data::Generator' );
+@Mock::Data::Generator::SubWrapper::ISA= ( 'Mock::Data::Generator' );
 
 sub Mock::Data::Generator::SubWrapper::template {
 	return $gen_attrs{Scalar::Util::Refaddr $_[0]}{template}
@@ -175,8 +177,8 @@ sub _compile_template {
 	# Combine adjacent scalars in the list
 	@parts= grep ref || length, @parts;
 	for (my $i= $#parts - 1; $i >= 0; --$i) {
-		if (!ref $parts->[$i] and !ref $parts->[$i+1]) {
-			$parts->[$i] .= splice(@parts, $i+1, 1);
+		if (!ref $parts[$i] and !ref $parts[$i+1]) {
+			$parts[$i] .= splice(@parts, $i+1, 1);
 		}
 	}
 	return

@@ -1,6 +1,8 @@
 package Mock::Data::Generator::Set;
 use strict;
 use warnings;
+use Mock::Data::Generator 'inflate_template';
+use parent 'Mock::Data::Generator';
 
 =head1 SYNOPSIS
 
@@ -55,8 +57,7 @@ sub weights {
 
 =head2 new
 
-Standard Moo constructor, accepting attribute initial values.  The values of C<items>
-must be scalars or coderefs (generators).
+Takes a list or hashref of attributes and returns them as an object.
 
 =head2 new_uniform
 
@@ -74,6 +75,12 @@ Construct a C<SetPicker> from a list of pairs of weight and item.  Item may be a
 or other valid specification for C<compile_generator>.  The 
 
 =cut
+
+sub new {
+	my $class= shift;
+	my %args= @_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]} : @_;
+	bless \%args, $class;
+}
 
 sub new_uniform {
 	my $class= shift;
@@ -117,27 +124,14 @@ sub evaluate {
 		}
 		$pick= ($max > $min && $tbl->[$max] <= $r)? $max : $min;
 	}
-	my $cmp_items= $self->{_compiled_items}
-		||= $self->_build__compiled_items($_[0]);
-	$pick= $cmp_items->[$pick];
-	return ref $pick? $pick->(@_) : $pick;
-}
-
-sub _compiled_items {
-	$_[0]{_compiled_items} # can't lazy-build without Mock::Data instance
-}
-
-# not an actual lazy builder
-sub _build__compiled_items {
-	my ($self, $mockdata)= @_;
-	defined $mockdata or die "Need Mock::Data parameter";
-	my @compiled= @{ $self->items };
-	for (@cmp) {
-		# don't bother compiling plain strings into generators
-		$_= $mockdata->compile_generator($_)
-			if ref $_ or index($_, '{') >= 0;
+	my $cmp_item= $self->{_compiled_items}[$pick];
+	unless (defined $cmp_item) {
+		$cmp_item= $self->{_compiled_items}[$pick]=
+			!ref $items->[$pick]? Mock::Data::Generator::Util::inflate_template($items->[$pick])
+			: ref $items->[$pick] eq 'ARRAY'? Mock::Data::Generator::Util::inflate_template($items->[$pick])
+			: $items->[$pick]
 	}
-	\@compiled;
+	return ref $cmp_item? $cmp_item->(@_) : $cmp_item;
 }
 
 sub _odds_table {

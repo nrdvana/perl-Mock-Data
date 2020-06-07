@@ -7,7 +7,7 @@ BEGIN {
 		defined $rand? $rand * ( @_? $_[0] : 1 ) : CORE::rand(@_);
 	}
 }
-use Test2::V0 -target => 'Mock::RelationalData::SetPicker';
+use Test2::V0 -target => 'Mock::Data::Generator::Set';
 
 subtest constructors => \&test_constructors;
 subtest weighted_distribution => \&test_weighted_distribution;
@@ -18,7 +18,7 @@ sub test_constructors {
 		object {
 			call items => [ 'a' ];
 			call evaluate => 'a';
-			call sub { shift->() } => 'a';
+			call sub { shift->compile->() } => 'a';
 		},
 		'uniform distribution of one single item'
 	);
