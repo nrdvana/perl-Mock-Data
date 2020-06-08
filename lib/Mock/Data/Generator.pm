@@ -150,28 +150,27 @@ sub _compile_template {
 	my ($tpl, $flags)= @_;
 	# Split the template on each occurrence of "{...}" but respect nested {}
 	my @parts= split /(
-		\{\}                  # empty braces
-		|
-		\{ \w                 # or braces that begin with word char
+		\{                 # curly braces
 			(?:
 				(?> [^{}]+ )    # span of non-brace (no backtracking)
 				|
 				(?1)            # or recursive match of whole pattern
 			)*
 		\}
-		|
-		\{ [#] [0-9A-Z]+ \}   # or braces with a hex code in them
 		)/x, $tpl;
 	# Convert the odd-indexed elements (contents of {...}) into calls to generators
 	for (my $i= 1; $i < @parts; $i += 2) {
 		if ($parts[$i] eq '{}') {
 			$parts[$i]= '';
 		}
-		elsif ($parts[$i] =~ /^\{#([0-9A-Z]+)\}$/) {
-			$parts[$i]= hex($1);
+		elsif ($parts[$i] =~ /^\{ % ([0-9A-Z]+) \} $/x) {
+			$parts[$i]= chr hex $1;
+		}
+		elsif ($parts[$i] =~ /^\{\w/) {
+			$parts[$i]= _compile_template_call(substr($parts[$i], 1, -1), $flags);
 		}
 		else {
-			$parts[$i]= _compile_template_call($parts[$i], $flags);
+			Carp::croak "Invalid template notation '$parts[$i]'";
 		}
 	}
 	# Combine adjacent scalars in the list
@@ -207,12 +206,30 @@ sub _compile_template {
 
 sub _compile_template_call {
 	my ($name_and_args, $flags)= @_;
-	my ($gen_name, @args)= split / +/, $name_and_args;
+	my @args;
+	while ($name_and_args =~ /\G(
+		(?:
+			(?> [^{ ]+ )         # span of non-space non-lbrace (no backtrack)
+			|
+			(\{                  # or matched braces containing...
+				(?:
+					(?> [^{}]+ )    # span of non-brace (no backtrack)
+					|
+					(?2)            # or recursive match of matched braces
+				)*
+			\})
+		)*
+		) [ ]*                   # don't capture trailing space
+		/xgc
+	) {
+		push @args, $1
+	}
+	my $gen_name= shift @args;
 	my (@calls, @named_args, @list_args);
 	# Each argument could be a literal value, or a name=value pair, and the values could include templates
 	for (@args) {
 		# Argument is NAME=VALUE
-		if ($_ =~ /^([^=]+)=(.*)/) {
+		if ($_ =~ /^([^{=]+)=(.*)/) {
 			push @named_args, $1, $2;
 			# Check if VALUE contains template substitutions
 			if (index($2, '{') >= 0) {
@@ -228,7 +245,7 @@ sub _compile_template_call {
 			push @list_args, $_;
 			# Check of VALUE contains template substitutions
 			if (index($_, '{') >= 0) {
-				my $gen= _compile_template($2);
+				my $gen= _compile_template($_);
 				if (!ref $gen) {
 					$list_args[-1]= $gen;
 				} else {

@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::RelationalData::Gen 'compile_generator', 'compile_template';
+use Mock::Data::Generator 'inflate_template';
 
 my @tests= (
 	[ 'a',                   'a' ],
@@ -9,28 +9,30 @@ my @tests= (
 	[ '{a }',                'a1' ],
 	[ '{b}',                 'b1' ],
 	[ '{b x=5}',             'b5' ],
+	[ '{b x==5}',            'b=5' ],
 	[ '{a x=6}{b c x=4 d}',  'a1b4' ],
 	# Invalid {} notation just results in no substitution performed
 	[ '{',                   '{' ],
 	[ 'x}',                  'x}' ],
 	[ '{x',                  '{x' ],
+	# Special template names that are just string escapes
 	[ '{}',                  '' ],
-	[ '{ }',                 '{ }' ],
-	[ '{ a}',                '{ a}' ],
-	# arrayref notation randomly selects from an element of the array,
-	# and each element is recrsively processed
-	[ ['a'],                 'a' ],
-	[ ['{a}'],               'a1' ],
-	[ ['{a'],                '{a' ],
-	# scalar ref is passed through unchanged
-	[ \'{a}',                '{a}' ],
+	[ '{%20}',               ' ' ],
+	[ '{%7B}',               '{' ],
+	# nested templates
+	[ '{a {%7B}}',           'a{' ],
+	[ '{a x{%20}y}',         'ax y' ],
+	[ '{b x{%3D}=4}',        'b1' ],
+	[ '{b x={%3D}4}',        'b=4' ],
+	[ '{a {b x={%3D}}}',     'ab=' ],
 );
-my $reldata= MockRelData->new;
+my $mockdata= MockRelData->new;
 for (@tests) {
 	my ($in, $out)= @$_;
 	my $tname= !ref $in? $in : ref $in eq 'ARRAY'? join(' ', '[', @$in, ']') : '\\'.$$in;
-	my $gen= compile_generator($in);
-	is( $gen->($reldata, {}), $out, $tname );
+	my $gen= inflate_template($in);
+	my $val= ref $gen? $gen->($mockdata, {}) : $gen;
+	is( $val, $out, $tname );
 }
 
 {
