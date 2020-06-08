@@ -1,7 +1,8 @@
 package Mock::Data;
 use strict;
 use warnings;
-use Storable 'dclone';
+use Storable ();
+use Module::Runtime;
 use Mock::Data::Generator;
 
 =head1 SYNOPSIS
@@ -134,18 +135,40 @@ sub new {
 			_generator_cache => {},
 		}, $self;
 	for ($args{with}? @{ $args{with} } : ()) {
-		$self->_load_plugin($_);
+		$self= $self->_load_plugin($_);
 	}
 	$self->add_generators($args{generators})
 		if $args{generators};
 	return $self;
 }
 
+sub _load_plugin {
+	my ($self, $name)= @_;
+	my @fail;
+	for ("Mock::Data::$name", $name) {
+		unless ($_->can('apply_mockdata_plugin')) {
+			unless (eval { Module::Runtime::require_module($_) }) {
+				push @fail, "Can't load $_";
+				next;
+			}
+			unless ($_->can('apply_mockdata_plugin')) {
+				push @fail, "No method $_->apply_plugin";
+				next;
+			}
+		}
+		my $new= $_->apply_mockdata_plugin($self);
+		ref($new) && ref($new)->can('call_generator')
+			or Carp::croak("$_->apply_mockdata_plugin did not return a Mock::Data");
+		return $new;
+	}
+	Carp::croak("Can't load plugin $name: ".join('; ', @fail));
+}
+
 sub _clone {
 	my $self= shift;
 	my $new= { %$self };
 	$new->{generators}= { %{ $self->{generators} } };
-	$new->{generator_state}= dclone($self->generator_state);
+	$new->{generator_state}= Storable::dclone($self->generator_state);
 	$new->{_generator_cache}= {};
 	$new;
 }
@@ -234,6 +257,16 @@ sub call_generator {
 	};
 	$gen->($self, @_);
 }
+
+our $AUTOLOAD;
+sub AUTOLOAD {
+	my $self= shift;
+	my $name= substr($AUTOLOAD, rindex($AUTOLOAD,':')+1);
+	$self->call_generator($name, @_);
+	# don't install, because generators are defined per-instance not per-package
+}
+
+sub DESTROY {} # prevent AUTOLOAD from triggering on ->DESTROY
 
 sub _merge_generator_spec {
 	my ($self, $old, $new)= @_;
