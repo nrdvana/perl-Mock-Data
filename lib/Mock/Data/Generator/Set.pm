@@ -124,13 +124,7 @@ sub evaluate {
 		}
 		$pick= ($max > $min && $tbl->[$max] <= $r)? $max : $min;
 	}
-	my $cmp_item= $self->{_compiled_items}[$pick];
-	unless (defined $cmp_item) {
-		$cmp_item= $self->{_compiled_items}[$pick]=
-			!ref $items->[$pick]? Mock::Data::Generator::Util::inflate_template($items->[$pick])
-			: ref $items->[$pick] eq 'ARRAY'? Mock::Data::Generator::Util::inflate_template($items->[$pick])
-			: $items->[$pick]
-	}
+	my $cmp_item= $self->{_compiled_items}[$pick] ||= _maybe_compile($items->[$pick]);
 	return ref $cmp_item? $cmp_item->(@_) : $cmp_item;
 }
 
@@ -147,6 +141,18 @@ sub _build__odds_table {
 		for 0..$#$items;
 	my $sum= 0;
 	return [ map { my $x= $sum; $sum += $_; $x/$total } @$weights ]
+}
+
+sub _maybe_compile {
+	my $spec= shift;
+	!ref $spec? do {
+		my $x= Mock::Data::Generator::Util::inflate_template($spec);
+		!$x? sub { $x } : $x  # wrap false scalars in a coderef so they are true
+	}
+	: ref $spec eq 'ARRAY'? __PACKAGE__->new_uniform($spec)->compile
+	: ref $spec eq 'CODE'? $spec
+	: ref($spec)->can('compile')? $spec->compile
+	: Carp::croak("Don't knkow how to compile '$spec'");
 }
 
 1;

@@ -38,13 +38,20 @@ for (@tests) {
 {
 	package MockRelData;
 	sub new { bless {}, shift }
-	sub generators {
-		return {
+	my %generators;
+	BEGIN {
+		%generators= (
 			# return 'a' followed by the first non-named argument, defaulting to 1
 			a => sub { 'a' . ($_[2] || 1) },
 			# return 'b' followed by the argument named 'x', defaulting to 1
 			b => sub { 'b' . ($_[1]{x} || 1) },
-		}
+		);
+	}
+	sub generators { \%generators }
+	sub call_generator {
+		my $self= shift;
+		my $name= shift;
+		$generators{$name}->($self, @_);
 	}
 }
 

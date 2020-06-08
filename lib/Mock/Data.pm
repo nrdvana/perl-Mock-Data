@@ -2,6 +2,7 @@ package Mock::Data;
 use strict;
 use warnings;
 use Storable 'dclone';
+use Mock::Data::Generator;
 
 =head1 SYNOPSIS
 
@@ -151,14 +152,20 @@ sub _clone {
 
 =head2 add_generators
 
-  $mock->add_generators( $name => $spec, ... )
+  $mockdata->add_generators( $name => $spec, ... )
 
 Set one or more named generators.  Arguments can be given as a hashref or a list of key/value
 pairs.  C<$spec> can be a coderef, an arrayref (of options) or an instance of
 L<Mock::Data::Generator>.  If a previous generator existed by the same name, it will be
 replaced.
 
-Returns C<$mock>, for chaining.
+If the C<$name> of the generator is a package-qualified name, the generator is added under
+both the long and short name.  For example, C<< merge_generators( 'MyPlugin::gen' => \&gen ) >>
+will register \&gen as both C<'MyPlugin::gen'> and an alias of C<'gen'>.  However, C<'gen'>
+will only be added if it didn't already exist.  This allows plugins to refer to eachother's
+names without collisions.
+
+Returns C<$mockdata>, for chaining.
 
 Use this method instead of directly modifying the C<generators> hashref so that this module
 can perform proper cache management.
@@ -167,7 +174,7 @@ can perform proper cache management.
 
   $mock->merge_generators( $name => $spec, ... )
 
-Same as L</set_generators>, but if a generator of that name already exists, replace it with a
+Same as L</add_generators>, but if a generator of that name already exists, replace it with a
 generator that returns both possible sets of results.  If the old generator was a coderef, it
 will be replaced with a new generator that calls the old coderef 50% of the time.  If the old
 generator and new generator are both arrayrefs, the merged generator will be a concatenation
@@ -182,35 +189,83 @@ can perform proper cache management.
 
 sub add_generators {
 	my $self= shift;
-	while (@_) {
-		my ($name, $spec)= splice @_, 0, 2;
+	my @args= @_ == 1? %{ $_[0] } : @_;
+	while (@args) {
+		my ($name, $spec)= splice @args, 0, 2;
 		$self->generators->{$name}= $spec;
 		delete $self->{_generator_cache}{$name};
+		if ($name =~ /::([^:]+)$/ and !defined $self->generators->{$1}) {
+			$self->generators->{$1}= $spec;
+		}
 	}
+	$self;
 }
 
 sub merge_generators {
 	my $self= shift;
-	while (@_) {
-		my ($name, $spec)= splice @_, 0, 2;
-		my $cur= $self->generators->{$name};
-		$spec= $self->_merge_generator_spec($cur, $spec) if defined $cur;
-		$self->generators->{$name}= $spec;
-		delete $self->{_generator_cache}{$name};
+	my @args= @_ == 1? %{ $_[0] } : @_;
+	while (@args) {
+		my ($name, $spec)= splice @args, 0, 2;
+		my $merged= $spec;
+		if (defined (my $cur= $self->generators->{$name})) {
+			$merged= $self->_merge_generator_spec($cur, $spec);
+			delete $self->{_generator_cache}{$name};
+		}
+		$self->generators->{$name}= $merged;
+		if ($name =~ /::([^:]+)$/) {
+			($name, $merged)= ($1, $spec);
+			if (defined (my $cur= $self->generators->{$name})) {
+				$merged= $self->_merge_generator_spec($cur, $spec);
+				delete $self->{_generator_cache}{$name};
+			}
+			$self->generators->{$name}= $merged;
+		}
 	}
+	$self;
+}
+
+sub call_generator {
+	my $self= shift;
+	my $name= shift;
+	my $gen= $self->{_generator_cache}{$name} ||= do {
+		my $spec= $self->{generators}{$name};
+		defined $spec or Carp::croak("No such generator '$name'");
+		$self->_compile_generator($spec);
+	};
+	$gen->($self, @_);
 }
 
 sub _merge_generator_spec {
 	my ($self, $old, $new)= @_;
-	if (ref $old && ref($old)->can('merge_generator_spec')) {
-		return $old->clone->merge_generator_spec($new);
-	} elsif (ref $new && ref($new)->can('merge_generator_spec')) {
-		return $new->clone->merge_generator_spec($old);
+	if (ref $old && ref($old)->can('combine_generator')) {
+		return $old->combine_generator($new);
+	} elsif (ref $new && ref($new)->can('combine_generator')) {
+		return $new->combine_generator($old);
 	} else {
 		return [
-			ref $old eq 'ARRAY'? @$old : ( $old ),
-			ref $new eq 'ARRAY'? @$new : ( $new ),
+			(ref $old eq 'ARRAY'? @$old : ( $old )),
+			(ref $new eq 'ARRAY'? @$new : ( $new )),
 		];
+	}
+}
+
+sub _compile_generator {
+	my ($self, $spec)= @_;
+	if (!ref $spec) {
+		my $gen= Mock::Data::Generator::Util::inflate_template($spec);
+		return ref $gen? $gen : sub { $gen };
+	}
+	elsif (ref $spec eq 'ARRAY') {
+		return Mock::Data::Generator::Set->new(items => $spec)->compile
+	}
+	elsif (ref $spec eq 'CODE') {
+		return $spec;
+	}
+	elsif (ref($spec)->can('compile')) {
+		return $spec->compile;
+	}
+	else {
+		Carp::croak("Don't know how to use generator '$spec'");
 	}
 }
 

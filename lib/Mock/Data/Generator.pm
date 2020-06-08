@@ -218,7 +218,7 @@ sub _compile_template_call {
 					(?2)            # or recursive match of matched braces
 				)*
 			\})
-		)*
+		)+
 		) [ ]*                   # don't capture trailing space
 		/xgc
 	) {
@@ -260,11 +260,14 @@ sub _compile_template_call {
 		# In most cases this will be an empty list.
 		$_->(@_) for @calls;
 		# $_[0] is $mockdata.   $_[1] is \%named_args from caller of generator.
-		my $generator= $_[0]->generators->{$gen_name}
-			|| Carp::croak "No such generator $gen_name";
-		# The @args we parsed get added to the \%args passed to the function on each call
-		$generator->($_[0], !@named_args? $_[1] : { %{$_[1]}, @named_args }, @list_args);
+		$_[0]->call_generator(
+			$gen_name,
+			# The @args we parsed get added to the \%args passed to the function on each call
+			!@named_args? $_[1] : { %{$_[1]}, @named_args },
+			@list_args
+		);
 	};
 }
 
+require Mock::Data::Generator::Set;
 1;
