@@ -87,7 +87,7 @@ C<< "{...}" >>, and recursively wraps arrayrefs.
 
 =head2 weighted_set
 
-  $generator= weighted_set( $weight => $item, ... )
+  $generator= weighted_set( $item => $weight, ... )
 
 Shortcut for L<Mock::RelationalData::SetPicker/new_weighted>.
 Automatically calls L</inflate_template> when scalar items contain

@@ -33,7 +33,7 @@ sub test_constructors {
 	);
 
 	is(
-		$CLASS->new_weighted( 2 => 'a', 3 => 'b' ),
+		$CLASS->new_weighted( a => 2, b => 3 ),
 		object {
 			call items => [ 'a', 'b' ];
 			call weights => [ 2, 3 ];
@@ -47,11 +47,11 @@ sub test_weighted_distribution {
 	# Call weighted selection 100 times with successive values of rand() to ensure correct distribution
 	no warnings 'redefine';
 	my $pct100= $CLASS->new_weighted(
-		10 => 'a',
-		49 => 'b',
-		01 => 'c',
-		20 => 'd',
-		20 => 'e',
+		a => 10,
+		b => 49,
+		c => 01,
+		d => 20,
+		e => 20,
 	);
 	my %counts;
 	for my $i (0..99) {

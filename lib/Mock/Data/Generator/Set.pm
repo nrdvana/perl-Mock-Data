@@ -69,7 +69,7 @@ probability.
 
 =head2 new_weighted
 
-  $picker= $class->new_weighted($weight => $item, ...);
+  $picker= $class->new_weighted($item => $weight, ...);
 
 Construct a C<SetPicker> from a list of pairs of weight and item.  Item may be a template
 or other valid specification for C<compile_generator>.  The 
@@ -90,10 +90,10 @@ sub new_uniform {
 
 sub new_weighted {
 	my $class= shift;
-	my (@weights, @items);
+	my (@items, @weights);
 	while (@_) {
-		push @weights, shift;
 		push @items, shift;
+		push @weights, shift;
 	}
 	$class->new(items => \@items, weights => \@weights);
 }
