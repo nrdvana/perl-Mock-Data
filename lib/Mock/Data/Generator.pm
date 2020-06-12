@@ -73,7 +73,7 @@ BEGIN {
 	require Exporter;
 	@Mock::Data::Generator::Util::ISA= ( 'Exporter' );
 	@Mock::Data::Generator::Util::EXPORT_OK=
-		qw( uniform_set weighted_set inflate_template );
+		qw( uniform_set weighted_set inflate_template new_generator );
 }
 
 =head2 uniform_set
@@ -113,7 +113,6 @@ return a plain string literal.
 
 =cut
 
-our %tpl_to_gen;
 our %gen_attrs;
 
 sub Mock::Data::Generator::Util::inflate_template {
@@ -126,6 +125,32 @@ sub Mock::Data::Generator::Util::inflate_template {
 		$gen_attrs{Scalar::Util::refaddr $cmp}= { template => $tpl };
 	}
 	return $cmp;
+}
+
+sub Mock::Data::Generator::Util::new_generator {
+	my ($spec, $flags)= @_;
+	if (!ref $spec) {
+		my $gen= index($spec, '{') == -1? $spec : _compile_template($spec, $flags);
+		if (!ref $gen) {
+			return $gen if $flags && $flags->{or_scalar};
+			$gen= sub { $gen };
+		}
+		bless $gen, 'Mock::Data::Generator::SubWrapper';
+		$gen_attrs{Scalar::Util::refaddr $gen}= { template => $spec };
+		return $gen;
+	}
+	elsif (ref $spec eq 'ARRAY') {
+		return Mock::Data::Generator::Set->new(items => $spec);
+	}
+	elsif (ref $spec eq 'CODE') {
+		return bless $spec, 'Mock::Data::Generator::SubWrapper';
+	}
+	elsif (ref($spec)->can('compile')) {
+		return $spec;
+	}
+	else {
+		Carp::croak("Don't know how to make '$spec' into a generator");
+	}
 }
 
 @Mock::Data::Generator::SubWrapper::ISA= ( 'Mock::Data::Generator' );

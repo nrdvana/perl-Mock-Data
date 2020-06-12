@@ -253,7 +253,7 @@ sub call_generator {
 	my $gen= $self->{_generator_cache}{$name} ||= do {
 		my $spec= $self->{generators}{$name};
 		defined $spec or Carp::croak("No such generator '$name'");
-		$self->_compile_generator($spec);
+		Mock::Data::Generator::Util::new_generator($spec)->compile;
 	};
 	$gen->($self, @_);
 }
@@ -279,26 +279,6 @@ sub _merge_generator_spec {
 			(ref $old eq 'ARRAY'? @$old : ( $old )),
 			(ref $new eq 'ARRAY'? @$new : ( $new )),
 		];
-	}
-}
-
-sub _compile_generator {
-	my ($self, $spec)= @_;
-	if (!ref $spec) {
-		my $gen= Mock::Data::Generator::Util::inflate_template($spec);
-		return ref $gen? $gen : sub { $gen };
-	}
-	elsif (ref $spec eq 'ARRAY') {
-		return Mock::Data::Generator::Set->new(items => $spec)->compile
-	}
-	elsif (ref $spec eq 'CODE') {
-		return $spec;
-	}
-	elsif (ref($spec)->can('compile')) {
-		return $spec->compile;
-	}
-	else {
-		Carp::croak("Don't know how to use generator '$spec'");
 	}
 }
 
