@@ -2,20 +2,28 @@ package Mock::Data;
 use strict;
 use warnings;
 use Storable ();
-use Module::Runtime;
+use Module::Runtime ();
+BEGIN {
+	if ("$]" >= 5.010_000) {
+		require mro;
+	} else {
+		require MRO::Compat;
+	}
+	mro::set_mro __PACKAGE__, 'c3';
+}
 use Mock::Data::Generator;
 
 =head1 SYNOPSIS
 
   # load it up with data from plugins
-  my $mockdata= Mock::Data->new(with => [ ... ]);
+  my $mockdata= Mock::Data->new([qw/ Num Text Contact /);
   
   # generate or pick data from sets
   say $mockdata->integer;    # returns a random integer
   say $mockdata->first_name; # returns a random entry from the first_name set
   
   # Can pass parameters to generators
-  say $mockdata->integer(max => 50);
+  say $mockdata->integer({ max => 50 });
   
   # Can define new collections (with autoload method) on the fly
   $mockdata->merge_generators(
@@ -261,12 +269,86 @@ sub call_generator {
 our $AUTOLOAD;
 sub AUTOLOAD {
 	my $self= shift;
+	Carp::croak "No method $AUTOLOAD in package $self" unless ref $self;
 	my $name= substr($AUTOLOAD, rindex($AUTOLOAD,':')+1);
 	$self->call_generator($name, @_);
 	# don't install, because generators are defined per-instance not per-package
 }
 
 sub DESTROY {} # prevent AUTOLOAD from triggering on ->DESTROY
+
+=head1 EXTENSION UTILITIES
+
+When writing plugins for Mock::Data, the following functions / methods may be useful:
+
+=head2 _add_method_table
+
+  my $subclass= $class->_add_method_table($package_name);
+  my $reblessed= $object->_add_method_table($package_name);
+
+This method can be called on a class or instance to add a new package to the ISA list.
+It does this by creating a derived class from whatever the current class is.  If called
+on an instance, it also re-blesses the instance to the new class.  If the class or
+instance already "isa $package_name", nothing changes.
+
+This does *not* check if $package_name is loaded.  That is the caller's responsibility.
+
+=cut
+
+our %auto_subclasses;
+
+sub _add_method_table {
+	my ($self, $new_parent)= @_;
+	my $class= ref $self || $self;
+	# Nothing to do if already part of this class/object
+	return $self if $class->isa($new_parent);
+	# Determine what the new @ISA will be
+	my @new_isa= defined $auto_subclasses{$class}
+		? @{$auto_subclasses{$class}}
+		: ($class);
+	# Remove base classes of new-parent from ISA list.
+	@new_isa= grep !$new_parent->isa($_), @new_isa;
+	# If no classes remain (new_parent has its own inheritence hierarchy that includes
+	# everything needed) then $new_class is just $new_parent
+	my $new_class;
+	if (!@new_isa) {
+		$new_class= $new_parent;
+	} else {
+		push @new_isa, $new_parent;
+		# Now find if this combination was already composed, else create it.
+		$new_class= _name_for_combined_isa(@new_isa);
+		if (!$auto_subclasses{$new_class}) {
+			no strict 'refs';
+			@{"${new_class}::ISA"}= @new_isa;
+			$auto_subclasses{$new_class}= \@new_isa;
+		}
+	}
+	return ref $self? bless($self, $new_class) : $new_class;
+}
+
+# When choosing a name for a new @ISA list, the name could be something as simple as ::AUTO$n
+# with an incrementing number, but that wouldn't be helpful in a stack dump.  But, a package
+# name fully containing the ISA package names could get really long and also be unhelpful.
+# Compromise by shortening the names by removing Mock::Data prefix and removing '::'.
+# If this results in a name collision (seems unlikely), add an incrementing number on the end.
+sub _name_for_combined_isa {
+	my @parts= grep { $_ ne 'Mock::Data' } @_;
+	my $isa_key= join "\0", @parts;
+	for (@parts) {
+		$_ =~ s/^Mock::Data:://;
+		$_ =~ s/::|_//g;
+	}
+	my $class= join '_', 'Mock::Data::_AUTO', @parts;
+	my $iter= 0;
+	my $suffix= '';
+	# While iterating, check to see if that package uses the same ISA list as this new request.
+	while (defined $auto_subclasses{$class . $suffix}
+		&& $isa_key ne join "\0", grep { $_ ne 'Mock::Data' } @{$auto_subclasses{$class . $suffix}}
+	) {
+		$suffix= '_' . ++$iter;
+	}
+	$class . $suffix;
+}
 
 sub _merge_generator_spec {
 	my ($self, $old, $new)= @_;
