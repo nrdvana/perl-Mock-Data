@@ -1,7 +1,6 @@
 package Mock::Data::Generator::Set;
 use strict;
 use warnings;
-use Mock::Data::Generator 'inflate_template';
 use parent 'Mock::Data::Generator';
 
 =head1 SYNOPSIS
@@ -146,7 +145,7 @@ sub _build__odds_table {
 sub _maybe_compile {
 	my $spec= shift;
 	!ref $spec? do {
-		my $x= Mock::Data::Generator::Util::inflate_template($spec);
+		my $x= Mock::Data::Util::inflate_template($spec);
 		!$x? sub { $x } : $x  # wrap false scalars in a coderef so they are true
 	}
 	: ref $spec eq 'ARRAY'? __PACKAGE__->new_uniform($spec)->compile
@@ -155,4 +154,4 @@ sub _maybe_compile {
 	: Carp::croak("Don't knkow how to compile '$spec'");
 }
 
-1;
+require Mock::Data::Util;

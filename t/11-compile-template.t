@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Generator 'inflate_template';
+use Mock::Data::Util 'inflate_template';
 
 my @tests= (
 	[ 'a',                   'a' ],

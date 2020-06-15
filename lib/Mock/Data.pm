@@ -1,8 +1,8 @@
 package Mock::Data;
 use strict;
 use warnings;
-use Storable ();
-use Module::Runtime ();
+require Storable;
+require Module::Runtime;
 BEGIN {
 	if ("$]" >= 5.010_000) {
 		require mro;
@@ -11,7 +11,6 @@ BEGIN {
 	}
 	mro::set_mro __PACKAGE__, 'c3';
 }
-use Mock::Data::Generator;
 
 =head1 SYNOPSIS
 
@@ -261,7 +260,7 @@ sub call_generator {
 	my $gen= $self->{_generator_cache}{$name} ||= do {
 		my $spec= $self->{generators}{$name};
 		defined $spec or Carp::croak("No such generator '$name'");
-		Mock::Data::Generator::Util::new_generator($spec)->compile;
+		Mock::Data::Util::new_generator($spec)->compile;
 	};
 	$gen->($self, @_);
 }
@@ -277,77 +276,42 @@ sub AUTOLOAD {
 
 sub DESTROY {} # prevent AUTOLOAD from triggering on ->DESTROY
 
-=head1 EXTENSION UTILITIES
+=head1 EXPORTS
 
-When writing plugins for Mock::Data, the following functions / methods may be useful:
+Mock::Data can export symbols from L<Mock::Data::Util>.  See that module for a complete
+reference for each function.
 
-=head2 _add_method_table
+=over
 
-  my $subclass= $class->_add_method_table($package_name);
-  my $reblessed= $object->_add_method_table($package_name);
+=item uniform_set(@items)
 
-This method can be called on a class or instance to add a new package to the ISA list.
-It does this by creating a derived class from whatever the current class is.  If called
-on an instance, it also re-blesses the instance to the new class.  If the class or
-instance already "isa $package_name", nothing changes.
+Return a L<Mock::Data::Generator::Set|Generator> that selects from a set of values or other
+generators.
 
-This does *not* check if $package_name is loaded.  That is the caller's responsibility.
+=item weighted_set($item => $weight, ...)
+
+Like C<uniform_set>, but allows you to specify a probability multiplier for each element.
+
+=item inflate_template($template)
+
+For a string, interpolate template notation and return either a constant scalar or a
+L<Mock::Data::Generator|Generator>.
+
+=item new_generator($specification)
+
+Take any C<$specification> that C<Mock::Data> knows how to process, and return a
+L<Mock::Data::Generator|Generator> for it.
+
+=item mock_data_subclass($class_or_object, @class_list)
+
+Return a new class (or re-blessed object) that inherits from all classes in the list.
+
+=back
 
 =cut
 
-our %auto_subclasses;
-
-sub _add_method_table {
-	my ($self, $new_parent)= @_;
-	my $class= ref $self || $self;
-	# Nothing to do if already part of this class/object
-	return $self if $class->isa($new_parent);
-	# Determine what the new @ISA will be
-	my @new_isa= defined $auto_subclasses{$class}
-		? @{$auto_subclasses{$class}}
-		: ($class);
-	# Remove base classes of new-parent from ISA list.
-	@new_isa= grep !$new_parent->isa($_), @new_isa;
-	# If no classes remain (new_parent has its own inheritence hierarchy that includes
-	# everything needed) then $new_class is just $new_parent
-	my $new_class;
-	if (!@new_isa) {
-		$new_class= $new_parent;
-	} else {
-		push @new_isa, $new_parent;
-		# Now find if this combination was already composed, else create it.
-		$new_class= _name_for_combined_isa(@new_isa);
-		if (!$auto_subclasses{$new_class}) {
-			no strict 'refs';
-			@{"${new_class}::ISA"}= @new_isa;
-			$auto_subclasses{$new_class}= \@new_isa;
-		}
-	}
-	return ref $self? bless($self, $new_class) : $new_class;
-}
-
-# When choosing a name for a new @ISA list, the name could be something as simple as ::AUTO$n
-# with an incrementing number, but that wouldn't be helpful in a stack dump.  But, a package
-# name fully containing the ISA package names could get really long and also be unhelpful.
-# Compromise by shortening the names by removing Mock::Data prefix and removing '::'.
-# If this results in a name collision (seems unlikely), add an incrementing number on the end.
-sub _name_for_combined_isa {
-	my @parts= grep { $_ ne 'Mock::Data' } @_;
-	my $isa_key= join "\0", @parts;
-	for (@parts) {
-		$_ =~ s/^Mock::Data:://;
-		$_ =~ s/::|_//g;
-	}
-	my $class= join '_', 'Mock::Data::_AUTO', @parts;
-	my $iter= 0;
-	my $suffix= '';
-	# While iterating, check to see if that package uses the same ISA list as this new request.
-	while (defined $auto_subclasses{$class . $suffix}
-		&& $isa_key ne join "\0", grep { $_ ne 'Mock::Data' } @{$auto_subclasses{$class . $suffix}}
-	) {
-		$suffix= '_' . ++$iter;
-	}
-	$class . $suffix;
+sub import {
+	Mock::Data::Util->export_to_level(1, @_);
 }
 
 sub _merge_generator_spec {
@@ -364,4 +328,4 @@ sub _merge_generator_spec {
 	}
 }
 
-1;
+require Mock::Data::Util;
