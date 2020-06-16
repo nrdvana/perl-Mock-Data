@@ -1,7 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::RelationalData;
-use Mock::RelationalData::Table;
+use Mock::Data::Relational::Table;
 
 =head1 DESCRIPTION
 
@@ -14,20 +13,24 @@ the table object.
 my @tests= (
 	[
 		[
-			name => 'basic_table',
+			name => 'array of columns',
 			columns => [
 				a => { type => 'varchar', mock => '', pk => 1 },
 				b => { mock => 4 },
+				{ name => 'c', type => 'varchar(16)' },
+				d => '{foo}',
 			]
 		],
 		object {
 			call columns => {
 				a => { name => 'a', idx => 0, type => 'varchar', mock => '', pk => 1 },
 				b => { name => 'b', idx => 1, mock => 4 },
+				c => { name => 'c', idx => 2, type => 'varchar', size => 16 },
+				d => { name => 'd', idx => 3, mock => '{foo}' }
 			};
-			call column_order => [ 'a', 'b' ];
+			call column_order => [ 'a', 'b', 'c', 'd' ];
 			call primary_key => [ 'a' ];
-			call relations => {};
+			call relationships => {};
 			call keys => {
 				primary => {
 					name => 'primary',
@@ -39,7 +42,7 @@ my @tests= (
 	],
 	[
 		[
-			name => 'mock_spec_only',
+			name => 'column mock spec',
 			columns => {
 				a => 'x',
 				b => \'#',
@@ -55,7 +58,7 @@ my @tests= (
 			};
 			call column_order => [ 'c', 'a', 'b' ];
 			call primary_key => [ 'c' ];
-			call relations => {};
+			call relationships => {};
 			call keys => {
 				primary => {
 					name => 'primary',
@@ -65,12 +68,32 @@ my @tests= (
 			};
 		}
 	],
+	[
+		[
+			name => 'mixed cols and rels',
+			columns => [
+				a => '{test}',
+				{ name => 'a', '1:N' => { a => 'x.id' } },
+			],
+		],
+		object {
+			call columns => {
+				a => { name => 'a', mock => '{test}', idx => 0 },
+			};
+			call column_order => [ 'a' ];
+			call primary_key => undef;
+			call relationships => {
+				a => { name => 'a', cardinality => '1:N',
+					   cols => ['a'], peer => 'x', peer_cols => ['id'] },
+			};
+			call keys => {};
+		}
+	],
 );
 
-my $reldata= Mock::RelationalData->new();
 for (@tests) {
 	my ($spec, $expected)= @$_;
-	my $t= Mock::RelationalData::Table->new(parent => $reldata, @$spec);
+	my $t= Mock::Data::Relational::Table->new(@$spec);
 	is( $t, $expected, $t->name );
 }
 

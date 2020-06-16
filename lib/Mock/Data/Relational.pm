@@ -1,6 +1,7 @@
-package Mock::RelationalData;
-use Moo 2;
-use Carp;
+package Mock::Data::Relational;
+use strict;
+use warnings;
+use Mock::Data qw/ mock_data_subclass /;
 
 =head1 SYNOPSIS
 
@@ -10,13 +11,10 @@ writing unit tests of complicated schemas where you only want to declare the
 few fields that are relevant to the test, but the schema requires many more
 not-null fields to have values in order to conduct the test.
 
-  my $reldata= Mock::RelationalData->new;
-  
-  # Define custom mock data generators
-  $reldata->add_generator("words" => ...);
+  my $mockdata= Mock::Data->new([qw/ Relational ... /])->new;
   
   # Define relational schema
-  $reldata->define_schema(
+  $mockdata->declare_schema(
     # you can import a whole DBIC schema
     $dbic_schema,
     
@@ -29,6 +27,7 @@ not-null fields to have values in order to conduct the test.
       name      => { type => 'varchar(99)', mock => 'words' },
       formed    => { type => 'datetime' },
       disbanded => { type => 'datetime', null => 1 },
+      albums    => { cardinality => '1:N', colmap => { id => 'album.artist_id' } },
     ],
     album => [
       id        => { type => 'integer',     mock => 'auto_inc', pk => 1 },
@@ -38,17 +37,20 @@ not-null fields to have values in order to conduct the test.
     ],
   );
   
-  # Then create a record
-  $reldata->add_records(album => { name => 'Test' });
+  # Optionally define static data
+  $mockdata->declare_reldata(
+    artist => [
+      { name => 'Disaster Area', albumns => [ { ... }, { ... } ] }
+    ]
+  );
   
-  # has the effect of: 
-  # push @artist, [ my $artist_id= auto_inc(...), words(...), datetime(...), undef ];
-  # push @album,  [ auto_inc(...), $artist_id, varchar(...), undef ];
+  # Then:
   
-  # Then use the data:
-  for my $dataset ($reldata->get_populate_sequence(as_array => 1)) {
-    $dbic_schema->resultset($dataset->{table_name})->populate($dataset->{rows});
-  }
+  # generate one table
+  my $artist_array= $mockdata->reldata({ rows => 10 }, 'artist');
+  
+  # generate multiple tables
+  my $table_data= $mockdata->reldata({ rows => { artist => 10 }
 
 =head1 DESCRIPTION
 
@@ -112,19 +114,176 @@ making an unreadable mess of details.
 This module solves that problem by generating mock data to fill in all the
 blanks around the data you care about.
 
-=head1 ATTRIBUTES
+=cut
 
-=head2 tables
+sub apply_mockdata_plugin {
+	my ($class, $mockdata)= @_;
+	$mockdata->add_generators({
+		reldata => \&reldata,
+	});
+	return mock_data_subclass($mockdata, 'Mock::Data::Relational::Methods');
+}
 
-Hashref of table name to L<Mock::RelationalData::Table> object.
+=head1 GENERATORS
+
+This plugin adds the following generators to the L<Mock::Data> instance:
+
+=head2 table
+
+  $rows= $mockdata->table( \%named_args );
+  $rows= $mockdata->table( \%named_args, $name => $rows_or_count );
+
+This function returns one table of data, as an arrayref.  Each element of the arrayref
+is a hashref, where the fields are defined either from named arguments to the generator,
+or by a pre-declared schema.
+
+The following named arguments can be given:
+
+=over
+
+=item C<name>
+
+The name of the pre-declared table to use.  This is required unless you specify the fields
+directly.
+
+=item C<fields>
+
+An arrayref or hashref of field or definitions.
+See L<Mock::Data::Relational::Table/fields> for a description of a field,
+or L<Mock::Data::Relational::Table/coerce_field> for the different shorthand
+notations you can use.
+
+These elements may contain relationship shorthand notation, and will be automatically
+sorted into that category.
+
+=item C<relationships>
+
+An arrayref or hashref of relationships to other tables.
+See L<Mock::Data::Relational::Table/relationships> for a description of a relationship,
+or L<Mock::Data::Relational::Table/coerce_relationship> for the different shorthand
+notations you can use.
+
+=item C<keys>
+
+An arrayref or hashref of keys which can be used to identify distinctness of rows.
+See L<Mock::Data::Relational::Table/keys> for a description of a key,
+or L<Mock::Data::Relational::Table/coerce_key> for the different shorthand
+notations you can use.
+
+=item C<rows>
+
+An arrayref of row hashrefs.  Each will be used as a template of literal values around which
+the rest of the missing fields will be inserted.  These rows B<are modified in-place>.
+
+=item C<count>
+
+The number of rows to generate.  Defaults to 1.  This cannot be given with C<rows>.
+
+=item C<via_relationship>
+
+  via_relationship => [ $table, $row, $rel_name ]
+
+This describes a row of another table and a relationship that is being followed in order to
+produce these rows.  These rows may receive additional default values from the original row
+according to the columns of the relationship.
+
+=back
+
+If a first positional argument is present, it is treated as C<fields> if it is a hashref
+or arrayref, or C<name> if it is a scalar.
+
+If a second positional argument is present, it is treated as C<rows> if it is an arrayref,
+or C<count> if it is a scalar.
+
+Example;
+
+  # generate one table, returning array of 10 records of the form
+  # {
+  #   name => $mockdata->words({size => 99}),
+  #   value => $mockdata->integer({size => 4})
+  # }
+  my $name_value_array= $mockdata->table(
+    {
+      fields => [
+        name => { mock => '{words 64}' },
+        value => { type => 'numeric(4,0)' },
+      ],
+      count => 10
+    }
+  );
+  # If the relation was pre-declared as "name_val", you can reference it:
+  my $name_value_array= $mockdata->table({ count => 10 }, 'name_val' );
 
 =cut
 
-has tables     => ( is => 'rw' );
+sub table {
+	my $mockdata= shift;
+	my $named_args= shift if ref $_[0] eq 'HASH';
+	my $name= shift;
+	my ($rows, $count)= !@_? (undef,undef) : ref $_[0]? (shift, undef) : (undef, shift);
+	my $table;
+	my $via;
 
-=head1 METHODS
+	# Fetch or construct the table specification
+	if (defined $named_args) {
+		my %args= %$named_args;
+		$name= delete $args{name} unless defined $name;
+		$rows= delete $args{rows} unless defined $rows;
+		$count= delete $args{count} unless defined $count;
+		$via_relationship= delete $args{via_relationship};
+		if ($args{fields}) {
+			$table= Mock::Data::Relational::Table->new(parent => $mockdata, %args);
+		}
+	}
+	if ($table) {
+		$mockdata->generator_state->{__PACKAGE__}{tables}{$name}= $table
+			if defined $name;
+	}
+	elsif (defined $name) {
+		$table= $mockdata->generator_state->{__PACKAGE__}{tables}{$name}
+			or croak "No declared table 'name'";
+	} else {
+		croak "Require 'name' or 'fields' in order to define the table";
+	}
 
-=head2 define_schema
+	# Create or fill-in the rows requested
+	if ($rows) {
+		$table->generate_row($_) for @$rows;
+	} else {
+		$count= 1 unless defined $count;
+		$rows= [];
+		push @$rows, $table->generate_row for 1..$count;
+	}
+	return $rows;
+}
+
+=head2 tables
+
+  my $table_set= $mockdata->tables( \%named_args, $name => $rows_or_count, ... )
+
+Return multiple tables of data, in a hashref by table name.
+
+The named arguments can contain the following:
+
+=over
+
+=item schema
+
+A hashref of table name to table specification, each matching the description in L</table>.
+
+=back
+
+For each pair of positional arguments given, the first will be the name of a table in the
+schema, and the second is either a count of rows, or an arrayref of row data that will be
+filled in.
+
+=cut
+
+sub tables {
+	
+}
+
+=head2 declare_schema
 
   $reldata->define_schema($dbic_schema, ...);
   $reldata->define_schema($dbic_source, ...);
@@ -211,37 +370,32 @@ sub set_column_mock {
 	}
 }
 
-sub get_mock_generator {
-	my ($self, $spec)= @_;
-	return sub { $spec } unless ref $spec;
-	return $spec if ref $spec eq 'CODE';
-	return $self->generators->{$$spec} || croak "No such generator $$spec"
-		if ref $spec eq 'SCALAR' && $$spec =~ /^\w+$/;
-	return sub {
-		my ($table, $col)= @_;
-		$table->parent->get_mock_value($spec, $table, $col)
-	}
+sub add_generator {
+	my ($self, $name, $spec)= @_;
+	$self->generators->{$name}= $self->compile_generator($spec);
 }
 
-#sub get_mock_value {
-#	my ($self, $spec, $table, $col)= @_;
-#	return $spec unless ref $spec;
-#	if (ref $spec eq 'SCALAR') {
-#		
-#}
-#
-#sub get_mock_generator_for_column {
-#	my ($self, $table, $col)= @_;
-#	if (exists $col->{mock}) {
-#		return $self->get_mock_generator($col->{mock});
-#	}
-#	elsif (defined $col->{data_type}) {
-#		...
-#	}
-#	else {
-#		return undef;
-#	}
-#}
+sub compile_generator {
+	my $self= shift;
+	Mock::RelationalData::Gen::compile_generator(@_);
+}
+
+sub default_generator_for_column {
+	my ($self, $table, $col)= @_;
+	return $self->compile_generator($col->{mock});
+		if exists $col->{mock};
+
+	return $self->generators->{int_seq}
+		if $col->{is_auto_increment} && defined $self->generators->{int_seq};
+	
+	if (defined $col->{data_type}) {
+		my ($base_type)= $col->{data_type} =~ /^(\w+)/;
+		my $gen= $self->generators->{"data_type_$base_type"};
+		return $gen if defined $gen;
+	}
+
+	return undef;
+}
 
 =head2 populate
 
