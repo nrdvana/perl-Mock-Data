@@ -49,8 +49,8 @@ not-null fields to have values in order to conduct the test.
   # generate one table
   my $artist_array= $mockdata->reldata({ rows => 10 }, 'artist');
   
-  # generate multiple tables
-  my $table_data= $mockdata->reldata({ rows => { artist => 10 }
+  # generate multiple tables ( returns ->{artist} and ->{album} )
+  my $table_data= $mockdata->reldata({ rows => { artist => 10 } });
 
 =head1 DESCRIPTION
 
@@ -173,7 +173,13 @@ notations you can use.
 =item C<rows>
 
 An arrayref of row hashrefs.  Each will be used as a template of literal values around which
-the rest of the missing fields will be inserted.  These rows B<are modified in-place>.
+the rest of the missing fields will be inserted.
+
+=item C<find>
+
+Boolean, whether to return existing rows when one of C<rows> specifies a unique key that
+was already generated.  If this is false (the default) and the row has a conflictig unique
+key, it will result in an exception.
 
 =item C<count>
 
@@ -184,8 +190,8 @@ The number of rows to generate.  Defaults to 1.  This cannot be given with C<row
   via_relationship => [ $table, $row, $rel_name ]
 
 This describes a row of another table and a relationship that is being followed in order to
-produce these rows.  These rows may receive additional default values from the original row
-according to the columns of the relationship.
+produce these rows.  The generated rows may receive additional default values from the original
+row according to the columns of the relationship.
 
 =back
 
@@ -195,24 +201,23 @@ or arrayref, or C<name> if it is a scalar.
 If a second positional argument is present, it is treated as C<rows> if it is an arrayref,
 or C<count> if it is a scalar.
 
-Example;
+Examples:
 
   # generate one table, returning array of 10 records of the form
   # {
   #   name => $mockdata->words({size => 99}),
   #   value => $mockdata->integer({size => 4})
   # }
-  my $name_value_array= $mockdata->table(
-    {
-      fields => [
-        name => { mock => '{words 64}' },
-        value => { type => 'numeric(4,0)' },
-      ],
-      count => 10
-    }
-  );
+  $name_value_array= $mockdata->table({
+    fields => [
+      name => { mock => '{words 64}' },
+      value => { type => 'numeric(4,0)' },
+    ],
+    count => 10
+  });
+
   # If the relation was pre-declared as "name_val", you can reference it:
-  my $name_value_array= $mockdata->table({ count => 10 }, 'name_val' );
+  $name_value_array= $mockdata->table({ count => 10 }, 'name_val' );
 
 =cut
 
