@@ -114,7 +114,8 @@ sub coerce_generator {
 		my $gen= index($spec, '{') == -1? $spec : _compile_template($spec, $flags);
 		if (!ref $gen) {
 			return $gen if $flags && $flags->{or_scalar};
-			$gen= sub { $gen };
+			my $const= $gen;
+			$gen= sub () { $const };
 		}
 		$gen= Mock::Data::Generator::SubWrapper->_new($gen, { template => $spec });
 		return $gen;

@@ -54,7 +54,8 @@ sub compile {
 }
 
 sub generate {
-	shift->(@_);
+	my $self= shift;
+	$self->(@_);
 }
 
 sub to_string {
