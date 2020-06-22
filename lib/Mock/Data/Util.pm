@@ -4,7 +4,7 @@ use warnings;
 require Exporter;
 require Carp;
 our @ISA= ( 'Exporter' );
-our @EXPORT_OK= qw( uniform_set weighted_set inflate_template new_generator mock_data_subclass );
+our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass );
 
 =head1 SYNOPSIS
 
@@ -12,7 +12,7 @@ our @EXPORT_OK= qw( uniform_set weighted_set inflate_template new_generator mock
     uniform_set
     weighted_set
     inflate_template
-    new_generator
+    coerce_generator
     mock_data_subclass
   /;
 
@@ -72,9 +72,9 @@ sub inflate_template {
 	return $cmp;
 }
 
-=head2 new_generator
+=head2 coerce_generator
 
-  my $generator= new_generator($spec);
+  my $generator= coerce_generator($spec);
 
 Returns a L<Mock::Data::Generator> wrapping the argument.  The following types are handled:
 
@@ -108,7 +108,7 @@ Any object which has a C<compile> method is returned as-is.
 
 =cut
 
-sub new_generator {
+sub coerce_generator {
 	my ($spec, $flags)= @_;
 	if (!ref $spec) {
 		my $gen= index($spec, '{') == -1? $spec : _compile_template($spec, $flags);

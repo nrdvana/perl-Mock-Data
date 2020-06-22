@@ -17,7 +17,7 @@ sub test_constructors {
 		$CLASS->new_uniform( 'a' ),
 		object {
 			call items => [ 'a' ];
-			call evaluate => 'a';
+			call generate => 'a';
 			call sub { shift->compile->() } => 'a';
 		},
 		'uniform distribution of one single item'
@@ -27,7 +27,7 @@ sub test_constructors {
 		$CLASS->new_uniform( 'a', 'b', 'c' ),
 		object {
 			call items => [ 'a', 'b', 'c' ];
-			call evaluate => in_set( 'a', 'b', 'c' );
+			call generate => in_set( 'a', 'b', 'c' );
 		},
 		'uniform distribution, several items'
 	);
@@ -37,7 +37,7 @@ sub test_constructors {
 		object {
 			call items => [ 'a', 'b' ];
 			call weights => [ 2, 3 ];
-			call evaluate => in_set( 'a', 'b' );
+			call generate => in_set( 'a', 'b' );
 		},
 		'weighted distribution'
 	);
@@ -56,7 +56,7 @@ sub test_weighted_distribution {
 	my %counts;
 	for my $i (0..99) {
 		local $rand= $i / 100;
-		++$counts{ $pct100->evaluate() };
+		++$counts{ $pct100->generate() };
 	}
 	is(
 		\%counts,

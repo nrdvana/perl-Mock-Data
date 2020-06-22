@@ -97,16 +97,16 @@ sub new_weighted {
 	$class->new(items => \@items, weights => \@weights);
 }
 
-=head2 evaluate
+=head2 generate
 
-  $val= $picker->evaluate($datagen, \%args);
+  $val= $picker->generate($datagen, \%args);
 
 Return one random item from the set.  This should be called with the reference
 to the L<Mock::DataGen> and optional named arguments. (as for any generator)
 
 =cut
 
-sub evaluate {
+sub generate {
 	my $self= shift;
 	my $items= $self->items;
 	my $pick;

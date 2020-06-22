@@ -260,7 +260,7 @@ sub call_generator {
 	my $gen= $self->{_generator_cache}{$name} ||= do {
 		my $spec= $self->{generators}{$name};
 		defined $spec or Carp::croak("No such generator '$name'");
-		Mock::Data::Util::new_generator($spec)->compile;
+		Mock::Data::Util::coerce_generator($spec)->compile;
 	};
 	$gen->($self, @_);
 }
@@ -297,7 +297,7 @@ Like C<uniform_set>, but allows you to specify a probability multiplier for each
 For a string, interpolate template notation and return either a constant scalar or a
 L<Mock::Data::Generator|Generator>.
 
-=item new_generator($specification)
+=item coerce_generator($specification)
 
 Take any C<$specification> that C<Mock::Data> knows how to process, and return a
 L<Mock::Data::Generator|Generator> for it.

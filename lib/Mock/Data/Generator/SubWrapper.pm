@@ -24,7 +24,7 @@ The original template string if known, else C<undef>.
 
 Returns C<$self>.  (because it's already a coderef)
 
-=head2 evaluate
+=head2 generate
 
 Calls C<$self>.
 
@@ -53,14 +53,14 @@ sub compile {
 	return $_[0];
 }
 
-sub evaluate {
+sub generate {
 	shift->(@_);
 }
 
 sub to_string {
 	my $self= shift;
 	my $tpl= $self->template;
-	defined $tpl? ref($self) . '=(Tpl: "$tpl")'
+	defined $tpl? ref($self) . "=(Tpl: '$tpl')"
 		: ref($self) . '=CODE(' . Scalar::Util::refaddr($self) . ')'
 }
 

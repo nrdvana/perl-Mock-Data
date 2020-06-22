@@ -67,8 +67,8 @@ my $words_picker= weighted_tpl_set(
 sub words :Export {
 	my ($reldata, $args, $size)= @_;
 	$size= $args->{size} if !defined $size && $args && defined $args->{size};
-	my $ret= $words_picker->evaluate(@_);
-	$ret .= ' ' . $words_picker->evaluate(@_)
+	my $ret= $words_picker->generate(@_);
+	$ret .= ' ' . $words_picker->generate(@_)
 		while length $ret < $size;
 	return substr($ret, 0, $size);
 }

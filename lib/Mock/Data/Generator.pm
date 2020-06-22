@@ -16,14 +16,14 @@ The most basic C<Mock::Data> generator is a simple coderef of the form
   sub ( $mockdata, \%arguments, @arguments ) { ... }
 
 which returns a literal data item, usually a scalar.  A generator can also be any object
-which has a L</evaluate> method.  The object form also allows other methods that can control
+which has a L</generate> method.  The object form also allows other methods that can control
 how the object is combined with others when a user wants to merge two generators into one.
 
 =head1 METHODS
 
-=head2 evaluate
+=head2 generate
 
-  my $data= $generator->evaluate($mockdata, \%arguments, @arguments);
+  my $data= $generator->generate($mockdata, \%arguments, @arguments);
 
 Like the coderef, this takes an instance of L<Mock::Data> as the first argument, followed by
 a hashref of named arguments, followed by arbitrary positional arguments after that.
@@ -35,15 +35,15 @@ a hashref of named arguments, followed by arbitrary positional arguments after t
 Return a plain coderef that invokes this generator.  The default in this abstract base class
 is to return:
 
-  sub { $self->evaluate(@_) }
+  sub { $self->generate(@_) }
 
 =cut
 
-sub evaluate { Carp::croak "Unimplemented" }
+sub generate { Carp::croak "Unimplemented" }
 
 sub compile {
 	my $self= shift;
-	sub { $self->evaluate(@_) }
+	sub { $self->generate(@_) }
 }
 
 =head2 combine_generator
