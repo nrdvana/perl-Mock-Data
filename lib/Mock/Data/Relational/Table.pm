@@ -2,6 +2,7 @@ package Mock::Data::Relational::Table;
 use strict;
 use warnings;
 use Carp;
+use Mock::Data::Util 'coerce_generator';
 use parent 'Mock::Data::Generator';
 
 =head1 DESCRIPTION
@@ -132,6 +133,8 @@ not-null columns, it will also create the related row (with mock data).
 
 sub relationships { $_[0]{relationships} }
 
+sub rows { $_[0]{rows} }
+
 =head1 METHODS
 
 =head2 new
@@ -170,6 +173,15 @@ and L</relationships> will be built automatically from it.
 A specification of C<mock> will create implied columns of each name and assign its 'mock'
 to the given generator.  This is useful in conjunction with C<dbic_source> which likely
 provides everything except the C<mock> attributes.
+
+=item C<< auto_mock => $which >>
+
+If set to the value C<'not_null'>, every not-null column which does not have a mock value
+defined will receive "something appropriate" according to its type and/or foreign key.
+See L<Mock::Data::Relational/mock_generator_for_column>.
+
+If set to the value C<'all'>, this will happen for nullable columns as well, resulting in
+fully populated records.
 
 =item C<< primary_key => $col_or_col_array >>
 
@@ -354,11 +366,21 @@ sub coerce_constructor_args {
 			cardinality => $has_unique_key? '1:1' : 'N:1',
 		};
 	}
+	
+	if (my $auto_mock= delete $args->{auto_mock}) {
+		my @cols= grep !exists $_->{mock}, values %columns;
+		@cols= grep !$_->{null}, @cols
+			if $auto_mock ne 'all';
+		for my $col (@cols) {
+			$col->{mock}= mock_generator_for_column($col, \%rels);
+		}
+	}
 
 	$args->{columns}= \%columns;
 	$args->{keys}= \%keys;
 	$args->{relationships}= \%rels;
 	$args->{column_order}= $column_order if defined $column_order;
+	$args->{rows}= [];
 	return $args;
 }
 
@@ -380,7 +402,7 @@ sub _build_column_order {
 sub _key_search_seq {
 	$_[0]{_key_search_seq} ||= $_[0]->_build__key_search_seq
 }
-sub _build_key_search_seq {
+sub _build__key_search_seq {
 	return [
 		sort {
 			# Check primary key, then unique keys, then non-unique keys
@@ -502,10 +524,17 @@ sub has_unique_key {
 
 =head2 find_rows_by_key
 
-  $row_or_rows= $table->find_rows_by_key($key_or_name, \%columns)
+  @rows= $table->find_rows_by_key($key_or_name, \%columns)
 
-Find any rows that were indexed in this key.  If the key is unique, this returns a single row
-or C<undef>.  If the key is not unique, this always returns an non-empty arrayref or C<undef>.
+Find any rows that were indexed in the named key having the values from C<%columns>.
+Returns a list of rows, possibly empty.
+
+=head2 find_rows
+
+  @rows= $table->find_rows(\%columns)
+
+Find any rows that were indexed by any key, using the first key whose required columns
+are defined in C<%columns>.  Keys are checked in order of Primary, unique, non-unique.
 
 =cut
 
@@ -513,14 +542,27 @@ sub find_rows_by_key {
 	my ($self, $key, $cols)= @_;
 	ref $key or ($key= $self->keys->{$key})
 		or croak "No such key";
-	$self->{_rows_by_key}{$key->{name}}{ join "\0", @{$cols}{@{ $key->{cols} }} }
+	my $row_kv= _keyval_of_row($cols, $key->{cols});
+	my $rows= defined $row_kv? $self->{_rows_by_key}{$key->{name}}{$row_kv} : undef;
+	return !$rows? () : ref $rows eq 'ARRAY'? @$rows : ( $rows );
 }
 
-sub _key_of_row {
-	my ($record, $key_cols)= @_;
+sub find_rows {
+	my ($self, $cols)= @_;
+	for my $key (@{ $self->_key_search_seq }) {
+		if (defined( my $row_kv= _keyval_of_row($cols, $key->{cols}) )) {
+			my $rows= $self->{_rows_by_key}{$key->{name}}{$row_kv};
+			return !$rows? () : ref $rows eq 'ARRAY'? @$rows : ( $rows );
+		}
+	}
+	return;
+}
+
+sub _keyval_of_row {
+	#my ($record, $key_cols)= @_;
 	join "\0", grep(
-		(defined $_ || return undef),
-		@{$record}{@$key_cols}
+		(defined $_ or return undef),
+		@{$_[0]}{@{$_[1]}}
 	);
 }
 
@@ -581,7 +623,7 @@ sub generate {
 		for (@list) {
 			if (defined && !ref) { $count= $_; }
 			elsif (ref eq 'ARRAY') { push @rows, @$_ }
-			elsif (ref eq 'HASH') { push @$rows, $_ }
+			elsif (ref eq 'HASH') { push @rows, $_ }
 			else { croak "Unexpected argument '$_'" }
 		}
 		if (@rows) {
@@ -625,7 +667,7 @@ sub _generate {
 		# shallow clone list of rows before we start modifying them
 		$rows= [ map +({ %$_ }), @$rows ];
 		# If rows created via_relationship, inject all key values
-		if my $col (keys %base) {
+		for my $col (keys %base) {
 			my $val= $base{$col};
 			for my $row (@$rows) {
 				!defined $row->{$col} || $row->{$col} eq $val
@@ -657,13 +699,13 @@ sub _remove_found_rows {
 	$rows= [ @$rows ];
 	for my $key (@$keys) {
 		my $need_cols= $key->{cols};
-		for my $i (reverse 0..$#rows) {
+		for my $i (reverse 0..$#$rows) {
 			if (scalar @$need_cols == grep defined $rows->[$i]{$_}, @$need_cols) {
 				if (my $existing= $self->find_rows_by_key($key, $rows->[$i])) {
 					# add matches to output
 					push @$matched_out, (ref $existing eq 'ARRAY'? @$existing : ($existing));
 					# remove this row from the list
-					splice($#rows, $i, 1);
+					splice(@$rows, $i, 1);
 				}
 			}
 		}
@@ -679,14 +721,128 @@ sub _get_peer_table {
 			." does not exist in \$mockdata->generators";
 }
 
+=head1 RELATED ROW HANDLING
+
+=cut
+
 sub _inflate_rows {
 	my ($self, $mockdata, $args, $rows)= @_;
 	my $cols= $self->columns;
 	my $rels= $self->relationships;
+	my $keys= $self->_key_search_seq;
 	my $store_rels= $args->{relationship_refs};
-	my $mock_cache= $self->_mock_cache($mockdata);
+	my $mock_cache= $self->{_mock_cache} ||= {};
+	my @cols_with_mock= grep defined $_->{mock}, values %$cols;
 
-	...
+	for my $row (@$rows) {
+		# Extract all relationship templates from the row
+		my %related;
+		#for my $rel (values %$rels) {
+		#	my $val;
+		#	# Only need to process ones that have a mock value or ones that are present in the row.
+		#	# But, if an un-ambiguous undef is present in the row, then skip even if $rel->{mock}
+		#	if (exists $row->{$rel->{name}}) {
+		#		$val= $row->{$rel->{name}};
+		#		# Columns and relationships can share the same name.  It's only considered relationship data
+		#		# if the name is unambiguous, or if the value is an arrayref or hashref.
+		#		if ($cols->{$rel->{name}}) {
+		#			next unless ref $val eq 'ARRAY' || ref $val eq 'HASH' || defined $rel->{mock};
+		#			delete $row->{$rel->{name}};
+		#		} else {
+		#			# an undef value cancels out $rel->{mock}
+		#			delete $row->{$rel->{name}};
+		#			next unless ref $val eq 'ARRAY' || ref $val eq 'HASH';
+		#		}
+		#		$related{$rel->{name}}= $val;
+		#	}
+		#	elsif (defined $rel->{mock}) {
+		#		$related{$rel->{name}}= undef;
+		#	}
+		#	else {
+		#		next;
+		#	}
+		#	# Decide whether relationships are receiving or supplying data.
+		#	...
+		#}
+
+		# Check for unknown columns
+		my @unknown= grep !defined $cols->{$_}, keys %$row;
+		croak "Unknown fields in row: ".join(', ', @unknown)
+			if @unknown;
+
+		# Now apply mock values for every mockable column
+		# TODO: exclude foreign keys when $related_rows given for that foreign key and receiving values.
+		# TODO: make sure to generate unique values for unique keys
+		for (grep !exists $row->{$_->{name}}, @cols_with_mock) {
+			my $generator= $mock_cache->{$_->{name}} ||= coerce_generator($_->{mock})->compile;
+			$row->{$_->{name}}= $generator->($mockdata, { table => $self, col => $_ });
+		}
+
+		# For each of the extracted relationship specifications, find/create the related rows.
+		#related_loop: for my $rel (values %$rels) {
+		#	my $rel= $rels->{$relname};
+		#	
+		#	if (my $rval= $related_rows{$rel->{name}}) {
+		#		my @peer_rows= ref $rval eq 'ARRAY'? @$rval : ( $rval );
+		#		# If the relation uses columns from this table which are defined in this row,
+		#		# include this row's values into the data that is being find-or-created.
+		#		for (0 .. $#{$rel->{cols}}) {
+		#			my $col= $rel->{cols}[$_];
+		#			my $peer_col= $rel->{peer_cols}[$_];
+		#			for (@peer_rows) {
+		#				$_->{$peer_col}= $row->{$col} unless exists $_->{$peer_col};
+		#			}
+		#		}
+		#		# find-or-create the records in the related table.
+		#		my $peer_table= $self->parent->tables->{$rel->{peer}}
+		#			or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table ".$self->name;
+		#		$peer_table->find_or_create(\@peer_rows);
+		#		# If this record did not define one or more of the values for the relation,
+		#		# pull them from the related record.
+		#		for (0 .. $#{$rel->{cols}}) {
+		#			my $col= $rel->{cols}[$_];
+		#			my $peer_col= $rel->{peer_cols}[$_];
+		#			$row->{$col}= $peer_rows[0]{$peer_col}
+		#				unless exists $row->{$col};
+		#		}
+		#	}
+		#	elsif ($rel->{is_fk}) {
+		#		my %fk;
+		#		for (0..$#{ $rel->{cols} }) {
+		#			my $col= $rel->{cols}[$_];
+		#			my $peer_col= $rel->{peer_cols}[$_];
+		#			# Can't exist unless the FK is fully not-null
+		#			next relation_loop unless defined $row->{$col};
+		#			$fk{$peer_col}= $row->{$col};
+		#		}
+		#		my $peer_table= $self->parent->tables->{$rel->{peer}}
+		#			or croak "No such table '$rel->{peer}' referenced by relation '$rel->{name}' of table ".$self->name;
+		#		$peer_table->find_or_create(\%fk);
+		#	}
+	
+		# For each key, add the row to that key's index.  If the key is unique, verify
+		# that the row isn't a duplicate.
+		my %unique_kvs;
+		for my $key (@$keys) { # $keys is sorted so that unique come first
+			if (defined (my $kv= _keyval_of_row($row, $key->{cols}))) {
+				if ($key->{unique}) {
+					if ($self->{_rows_by_key}{$key->{name}}{$kv}) {
+						# whoops, duplicate.  Remove any references added to this row so far in this loop
+						delete $self->{_rows_by_key}{$_}{$unique_kvs{$_}} for keys %unique_kvs;
+						$kv =~ s/\0/,/g;
+						croak "Attempt to add_row with duplicate key '$key->{name}': ($kv)";
+					}
+					$self->{_rows_by_key}{$key->{name}}{$kv}= $row;
+					$unique_kvs{$key->{name}}= $kv;
+				}
+				else {
+					push @{ $self->{_rows_by_key}{$key->{name}}{$kv} }, $row;
+				}
+			}
+		}
+		push @{ $self->rows }, $row;
+	}
+	# no return; the row hashrefs were inflated in-place
 }
 
 1;

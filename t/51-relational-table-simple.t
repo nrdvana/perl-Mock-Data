@@ -1,13 +1,14 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::RelationalData;
-use Mock::RelationalData::Table;
+use Mock::Data;
+use Mock::Data::Relational::Table;
+sub explain { require Data::Dumper; Data::Dumper::Dumper(@_); }
 
 =head1 DESCRIPTION
 
-This unit test verifies that row data gets added correctly to a single
-table (no joins are considered) and that the table's indexes get updated
-correctly.
+This unit test verifies that a table can generate basic columns, with or without
+template rows, and that the table's indexes get updated correctly and can return
+existing rows.
 
 =cut
 
@@ -25,21 +26,23 @@ my @tests= (
 		'pk only' => {
 			row   => { a => 1 },
 			check => { a => 1, b => 'b-default', c => 'c-default' },
-			keys  => { primary => 1 },
 		},
 		'deliberate NULL' => {
 			row   => { a => 2, b => undef },
 			check => { a => 2, b => undef, c => 'c-default' },
-			keys  => { primary => 2 },
 		},
 		'pk only' => {
 			row   => { a => 3 },
 			check => { a => 3, b => 'b-default', c => 'c-default' },
-			keys  => { primary => 3 },
 		},
 		'dup pk' => {
 			row   => { a => 3 },
 			error => qr/duplicate/,
+		},
+		'dup pk find' => {
+			row   => { a => 2 },
+			find  => 1,
+			check => { a => 2, b => undef, c => 'c-default' },
 		},
 	],
 	check => object {
@@ -48,8 +51,8 @@ my @tests= (
 			hash { field a => 2; etc },
 			hash { field a => 3; etc },
 		];
-		call [ find_or_create => { a => 2 } ] => hash { field b => undef; etc };
-		call [ find_or_create => { a => 3 } ] => hash { field b => 'b-default'; etc };
+		call [ find_rows => { a => 2 } ] => hash { field b => undef; etc };
+		call [ find_rows => { a => 3 } ] => hash { field b => 'b-default'; etc };
 	},
 },
 # Table with 2 unique keys and one non-unique key
@@ -102,39 +105,32 @@ my @tests= (
 			hash { field a => 'third'; etc },
 			hash { field a => 'fourth'; etc },
 		];
-		call [ find_or_create => { a => 'third' } ] => hash { field b => 3; etc };
-		call [ find_or_create => { b => 2, c => 2 } ] => hash { field a => 'second'; etc };
-		# non-unique key just returns most recent row with that value
-		call [ find_or_create => { c => 'c-default' } ] => hash { field a => 'third'; etc };
+		call [ find_rows => { a => 'third' } ] => hash { field b => 3; etc };
+		call [ find_rows => { b => 2, c => 2 } ] => hash { field a => 'second'; etc };
 	},
 }
 );
 
-my $reldata= Mock::RelationalData->new;
+my $mockdata= Mock::Data->new;
 for my $spec (@tests) {
 	my @rowtests= @{ delete $spec->{row_tests} };
 	my $check= delete $spec->{check};
-	my $t= Mock::RelationalData::Table->new(parent => $reldata, %$spec);
+	my $t= Mock::Data::Relational::Table->new($spec);
 	subtest $spec->{name} => sub {
 		# Iterate the $name=>\%info pairs until end of list or until next table specification
 		while (@rowtests) {
 			my $name= shift @rowtests;
-			my ($row, $check, $keys, $error)= @{shift @rowtests}{'row','check','keys','error'};
+			my ($row, $check, $find, $keys, $error)= @{shift @rowtests}{'row','check','find','keys','error'};
+			my $args= { rows => [ $row ], find => $find };
 			if ($error) {
-				ok( !eval { $t->add_row($row) }, "add_row '$name' dies" );
+				ok( !eval { $t->generate($mockdata, $args) }, "generate '$name' dies" );
 				like( $@, $error, '...with correct error' );
 			}
 			else {
-				my $added= $t->add_row($row);
-				is( $added, $check, "row: $name" );
-				for my $keyname (keys %$keys) {
-					my $keykey= $keys->{$keyname};
-					is(
-						$t->_row_by_key->{$keyname},
-						hash { field $keykey => $added; etc; },
-						"(key: $keyname)"
-					);
-				}
+				my $added= $t->generate($mockdata, $args);
+				$check= [ $check ] unless ref $check eq 'ARRAY';
+				is( $added, $check, "row: $name" )
+					or diag explain $added;
 			}
 		}
 		is( $t, $check );
