@@ -141,7 +141,7 @@ sub new {
 			generator_state => {},
 			_generator_cache => {},
 		}, $self;
-	for ($args{with}? @{ $args{with} } : ()) {
+	for (ref $args{with}? @{ $args{with} } : $args{with}? ( $args{with} ) : ()) {
 		$self= $self->_load_plugin($_);
 	}
 	$self->add_generators($args{generators})

@@ -1,15 +1,19 @@
 package Mock::Data::Relational;
 use strict;
 use warnings;
+use Carp;
+use Mock::Data::Relational::Table;
 use Mock::Data qw/ mock_data_subclass /;
 
 =head1 SYNOPSIS
 
-This module assists you with creating data that matches a relational schema,
-with a minimal amount of manually-specified data.  This is primarily useful for
-writing unit tests of complicated schemas where you only want to declare the
-few fields that are relevant to the test, but the schema requires many more
-not-null fields to have values in order to conduct the test.
+This L<Mock::Data> plugin supplies a collection of generators that help create
+data which matches a relational schema.
+
+This primary purpose is for unit tests, to help you fill complicated schemas
+where you only want to declare the few fields that are relevant to the test,
+but the schema requires many more not-null fields to have values in order to
+conduct the test.
 
   my $mockdata= Mock::Data->new([qw/ Relational ... /])->new;
   
@@ -119,7 +123,9 @@ blanks around the data you care about.
 sub apply_mockdata_plugin {
 	my ($class, $mockdata)= @_;
 	$mockdata->add_generators({
+		table   => \&table,
 		reldata => \&reldata,
+		auto_increment => \&auto_increment,
 	});
 	return mock_data_subclass($mockdata, 'Mock::Data::Relational::Methods');
 }
@@ -209,7 +215,7 @@ Examples:
   #   value => $mockdata->integer({size => 4})
   # }
   $name_value_array= $mockdata->table({
-    fields => [
+    columns => [
       name => { mock => '{words 64}' },
       value => { type => 'numeric(4,0)' },
     ],
@@ -230,41 +236,31 @@ sub table {
 	my $via;
 
 	# Fetch or construct the table specification
-	if (defined $named_args) {
-		my %args= %$named_args;
-		$name= delete $args{name} unless defined $name;
-		$rows= delete $args{rows} unless defined $rows;
-		$count= delete $args{count} unless defined $count;
-		$via_relationship= delete $args{via_relationship};
-		if ($args{fields}) {
-			$table= Mock::Data::Relational::Table->new(parent => $mockdata, %args);
-		}
-	}
-	if ($table) {
-		$mockdata->generator_state->{__PACKAGE__}{tables}{$name}= $table
-			if defined $name;
+	if (defined $named_args && $named_args->{columns}) {
+		my %tbl_ctor= %$named_args;
+		delete @tbl_ctor{qw/ rows count find via_relationship /};
+		$tbl_ctor{name} ||= 1; # not saving the table, just need to have any name
+		$table= Mock::Data::Relational::Table->new(%tbl_ctor);
 	}
 	elsif (defined $name) {
-		$table= $mockdata->generator_state->{__PACKAGE__}{tables}{$name}
-			or croak "No declared table 'name'";
+		$table= $mockdata->generators->{'table_'.$name}
+			or croak "No declared table '$name'";
 	} else {
-		croak "Require 'name' or 'fields' in order to define the table";
+		croak "Require 'name' or 'columns' in order to define the table";
 	}
 
 	# Create or fill-in the rows requested
 	if ($rows) {
-		$table->generate_row($_) for @$rows;
+		return $table->generate($mockdata, { rows => $rows, %$named_args });
 	} else {
 		$count= 1 unless defined $count;
-		$rows= [];
-		push @$rows, $table->generate_row for 1..$count;
+		return $table->generate($mockdata, { count => $count, %$named_args });
 	}
-	return $rows;
 }
 
 =head2 tables
 
-  my $table_set= $mockdata->tables( \%named_args, $name => $rows_or_count, ... )
+  $table_set= $mockdata->tables( \%named_args, $name => $rows_or_count, ... )
 
 Return multiple tables of data, in a hashref by table name.
 
@@ -288,62 +284,216 @@ sub tables {
 	
 }
 
+=head2 auto_increment
+
+  $next_id= $mockdata->auto_increment({ table => $t })
+
+This generator returns the next value in a sequence.  The sequence is maintained per-table,
+and a named argument of 'table' must be supplied, and it must be a
+L<Table generator|Mock::Data::Relational::Table>.  (The Table generator automatically passes
+itself as this argument when calling auto_increment)
+
+=cut
+
+sub auto_increment {
+	my ($mockdata, $args)= @_;
+	$args->{table}->auto_increment($args);
+}
+
+=head2 auto_unique
+
+  $random_id= $mockdata->auto_unique({ table => $t, column => $c })
+
+This generator returns some random value appropriate for the column which is unique from any
+other that has been generated for this column of this table.  The type of the data generated
+will match the C<type> of the column, or an integer if the C<type> is not known.
+
+=over
+
+=item table
+
+An instance of L<Mock::Data::Relational::Table>
+
+=item column
+
+A hashref of column info according to L<Mock::Data::Relational::Table/columns>.
+
+=item source
+
+A generator from which to pull values.  If not provided, one will be chosen according to
+the C<type> of the column.
+
+=item max_attempts
+
+The maximum number of random values that will be generated before giving up on finding a
+unique value. (after which, the generator dies.) The default is 10.
+
+=back
+
+=cut
+
+sub auto_unique {
+	my ($mockdata, $args)= @_;
+	my ($table, $column, $source, $n)= @{$args}{qw/ table column source max_attempts /};
+	$source ||= _decide_auto_unique_source($column);
+	my $key= $table->has_unique_key($column->{name});
+	for (1.. ($n || 10)) {
+		my $val= $mockdata->$source;
+		if ($key) {
+			return $val unless $table->find_rows_by_key($key, { $column->{name} => $val });
+		} else {
+			no warnings 'uninitialized';
+			return $val unless grep $_->{$column->{name}} eq $val, @{ $table->rows };
+		}
+	}
+	croak "Failed to generate unique value for ".$table->name." $column->{name} after $n attempts";
+}
+
+sub _decide_auto_unique_source {
+	...
+}
+
+=head2 numeric
+
+  $mockdata->numeric({ col => $c })
+
+This generator returns a random number within the number of digits and precision specified
+for the column.
+
+=head2 varchar
+
+  $mockdata->varchar({ column => { size => 12 } }) # returns "" through "varchar___12"
+  $mockdata->varchar({ size => 15 })               # returns "" through "varchar______15"
+  $mockdata->varchar({ size => 100000 })           # 99%: returns length < 64, 1% length > 64
+  $mockdata->varchar({ source => 'lorem')          # calls "{lorem}", truncated to random length
+  $mockdata->varchar({}, 'lorem')                  # calls "{lorem}", truncated to random length
+
+This generator returns a random-length string, though it does not randomize the characters
+by default unless you give it an argument of what other generator to use, such as 'lorem'.
+
+Named arguments:
+
+=over
+
+=item column
+
+A reference to a L<Table column|Mock::RelationalData::Table/columns>.  Optional.
+
+=item size
+
+The default upper limit on the size of the generated string.  If not provided, this
+defaults to the size of the C<col>.  If that is also not given, it defaults to 64.
+
+If the size is less than C<min+100>, there is an even probability of selecting any length
+string up to this size.  If the size is greater than C<min+100>, the randomziation is alered
+so that 99% of the generated strings are less than C<min+100>, but 1% can be any length up
+to the maximum.
+
+=item max
+
+A sanity check that will be applied to the value of C<size>.  Defaults to C<10_000_000>.
+
+=item common_max
+
+A statistical boundary such that strings shorter than this are 99% more likely.
+
+=item min
+
+Minimum length of the string.  Defaults to 0.
+
+=item source
+
+The name of another generator which will be used to generate the characters.
+
+=back
+
+=cut
+
+sub varchar {
+	my ($reldata, $args, $source)= @_;
+	my $col= $args && $args->{col};
+	my $size= (($args && defined $args->{size})? $args->{size} : ($col && $col->{size})) || 64;
+	my $max= ($args && defined $args->{max})? $args->{max} : 10_000_000;
+	my $min= ($args && $args->{min}) || 0;
+	my $common_max= ($args && defined $args->{common_max})? $args->{common_max} : $min + 100;
+	$source= $args->{source} unless defined $args->{source};
+	# random length.  avoid really long strings except for 1/100 chance
+	$size= $size > $common_max && rand() < .01? $common_max + int rand($size - $common_max)
+		: $min + int rand($size - $min);
+	# cap for sanity
+	$size= $max if $size > $max;
+	# use specified generator, if any
+	if ($source) {
+		my $gen= $reldata->generators->{$source}
+			or croak "No such source generator '$source' defined in parent";
+		return $gen->($reldata, { ($args? %$args : ()), size => $size });
+	}
+	# else use "varchar_____N" default
+	return $size > 7? 'varchar' . ('_' x ($size - 7 - length $size)) . length($size)
+		: substr('varchar', 0, $size);
+}
+
+=head1 METHODS
+
+The following methods are added to the Mock::Data instance when using this plugin:
+
+=cut
+
+# Methods are defined in this file
+@Mock::Data::Relational::Methods::ISA= ( 'Mock::Data' );
+$INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
+
 =head2 declare_schema
 
-  $reldata->define_schema($dbic_schema, ...);
-  $reldata->define_schema($dbic_source, ...);
-  $reldata->define_schema(\%table_attributes, ...);
-  $reldata->define_schema($table_name => \%columns, ...);
+  $mockdata->declare_schema($dbic_schema, ...);
+  $mockdata->declare_schema($dbic_source, ...);
+  $mockdata->declare_schema(\%table_attributes, ...);
+  $mockdata->declare_schema($table_name => \%columns, ...);
 
 Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
 objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
 import a single table, a hashref is used as the direct constructor arguments for a
-L<Mock::RelationalData::Table>, and a scalar followed by an array or hashref are considered to
-be a tbale name and its column specification.
+L<Mock::Data::Relational::Table>, and a scalar followed by an array or hashref are considered
+to be a table name and its column specification.
 
-The table name must be unique; attempts to define a table twice will throw an exception.
+The table name must be unique, unless you pass the option C<< replace => 1 >>; attempts to
+define a table twice without that flag will throw an exception,
 
 =cut
 
-sub define_schema {
+sub Mock::Data::Relational::Methods::declare_schema {
 	my $self= shift;
 	while (@_) {
 		my $thing= shift;
+		my %ctor;
 		if (!ref $thing) {
-			my $columns= shift || croak "Expected column arrayref or hashref following '$thing'";
-			$self->define_table(name => $thing, columns => $columns);
+			my $columns= shift;
+			ref $columns eq 'ARRAY' || ref $columns eq 'HASH'
+				or croak "Expected column arrayref or hashref following '$thing' (got $columns)";
+			%ctor= ( name => $thing, columns => $columns );
 		}
 		elsif (ref $thing eq 'HASH') {
-			$self->define_table(%$thing);
+			%ctor= ( %$thing );
 		}
 		elsif (ref($thing)->isa('DBIx::Class::Schema')) {
-			$self->define_table(_dbic_rsrc_to_table_spec($thing->source($_)))
-				for $thing->sources;
+			unshift @_, map +({ name => $_, dbic_source => $thing->source($_) }), $thing->sources;
+			next;
 		}
 		elsif (ref($thing)->isa('DBIx::Class::ResultSource')) {
-			$self->define_table(_dbic_rsrc_to_table_spec($thing));
+			%ctor= ( dbic_source => $thing );
 		}
 		else {
 			croak "Don't know what to do with '$thing' (not a table name, hashref, or DBIC object)";
 		}
+		
+		my $replace= delete $ctor{replace};
+		my $table= Mock::Data::Relational::Table->new(\%ctor);
+		my $gen_name= 'table_'.$table->name;
+		croak "Table generator '$gen_name' was already defined"
+			if $self->generators->{$gen_name} && !$replace;
+		$self->generators->{$gen_name}= $table;
 	}
-}
-
-=head2 define_table
-
-  $reldata->define_table( %attrs );
-
-This is a shortcut for creating instances of L<Mock::RelationalData::Table> and assigning them
-to the L</tables> hashref.  If a table by this name already exists, it throws an error.
-
-=cut
-
-sub define_table {
-	my $self= shift;
-	my $table= Mock::RelationalData::Table->new(@_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]} : @_);
-	croak "Table '".$table->name."' was already defined"
-		if $self->tables->{$table->name};
-	$self->tables->{$table->name}= $table;
+	$self;
 }
 
 =head2 set_column_mock
@@ -352,7 +502,7 @@ You can declare the C<mock> attribute on each column you define in L</define_tab
 you loaded your schema from a C<DBIx::Class::Schema> you can't redefine the table, and probably
 just want to add the C<mock> attribute to the existing columns.  This method does that.
 
-  $reldata->set_column_mock(
+  $mockdata->set_column_mock(
     table1 => {
       col1 => $mock_spec,
       col2 => $mock_spec,
@@ -363,7 +513,7 @@ just want to add the C<mock> attribute to the existing columns.  This method doe
 
 =cut
 
-sub set_column_mock {
+sub Mock::Data::Relational::Methods::set_column_mock {
 	my $self= shift;
 	while (my ($table_name, $colmock)= splice @_, 0, 2) {
 		my $table= $self->tables->{$table_name} or croak "Table '$table_name' is not declared";
@@ -387,7 +537,7 @@ sub compile_generator {
 
 sub default_generator_for_column {
 	my ($self, $table, $col)= @_;
-	return $self->compile_generator($col->{mock});
+	return $self->compile_generator($col->{mock})
 		if exists $col->{mock};
 
 	return $self->generators->{int_seq}
