@@ -103,6 +103,8 @@ sub primary_key { my $pk= shift->keys->{primary}; $pk? $pk->{cols} : undef }
 sub _keys { $_[0]{keys} }
 *keys= *_keys; # reduce pain of "Ambiguous call resolved as CORE::keys()"
 
+sub sequence_counters { $_[0]{sequence_counters} ||= {} }
+
 =head2 relationships
 
 A hashref of relation names from this table to another table.  Each relation is of the form:
@@ -520,6 +522,18 @@ sub has_unique_key {
 	my $self= shift;
 	my @cols= @_ == 1 && ref $_[0] eq 'ARRAY'? @{ $_[0] } : @_;
 	$self->_unique_key_lookup->{join("\0", sort @cols)};
+}
+
+=head2 auto_increment
+
+Increment one of the L</sequence_counters> and return the value.  This operates per-column,
+if a column is specified, else it operates per-table.
+
+=cut
+
+sub auto_increment {
+	my ($self, $args)= @_;
+	++$self->sequence_counters->{ $args->{column}? $args->{column}{name} : '' };
 }
 
 =head2 find_rows_by_key

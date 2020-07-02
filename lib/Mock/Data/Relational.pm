@@ -233,7 +233,6 @@ sub table {
 	my $name= shift;
 	my ($rows, $count)= !@_? (undef,undef) : ref $_[0]? (shift, undef) : (undef, shift);
 	my $table;
-	my $via;
 
 	# Fetch or construct the table specification
 	if (defined $named_args && $named_args->{columns}) {
