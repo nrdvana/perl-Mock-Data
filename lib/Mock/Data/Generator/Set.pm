@@ -151,7 +151,7 @@ sub _maybe_compile {
 	: ref $spec eq 'ARRAY'? __PACKAGE__->new_uniform($spec)->compile
 	: ref $spec eq 'CODE'? $spec
 	: ref($spec)->can('compile')? $spec->compile
-	: Carp::croak("Don't knkow how to compile '$spec'");
+	: Carp::croak("Don't know how to compile '$spec'");
 }
 
 require Mock::Data::Util;

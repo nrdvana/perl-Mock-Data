@@ -4,6 +4,7 @@ use warnings;
 use Carp;
 use Mock::Data::Util 'coerce_generator';
 use parent 'Mock::Data::Generator';
+our @_clone_fields;
 
 =head1 DESCRIPTION
 
@@ -104,6 +105,7 @@ sub _keys { $_[0]{keys} }
 *keys= *_keys; # reduce pain of "Ambiguous call resolved as CORE::keys()"
 
 sub sequence_counters { $_[0]{sequence_counters} ||= {} }
+push @_clone_fields, 'sequence_counters';
 
 =head2 relationships
 
@@ -136,6 +138,7 @@ not-null columns, it will also create the related row (with mock data).
 sub relationships { $_[0]{relationships} }
 
 sub rows { $_[0]{rows} }
+push @_clone_fields, 'rows';
 
 =head1 METHODS
 
@@ -198,6 +201,13 @@ sub new {
 	my $args= $class->coerce_constructor_args(@_);
 	defined $args->{name} or croak "'name' is required";
 	bless $args, $class;
+}
+
+sub clone {
+	my $self= shift;
+	my $new= { %$self };
+	ref && ($_= Storable::dclone($_)) for @{$new}{@_clone_fields};
+	return bless $new, ref $self;
 }
 
 sub coerce_constructor_args {
@@ -551,6 +561,8 @@ Find any rows that were indexed by any key, using the first key whose required c
 are defined in C<%columns>.  Keys are checked in order of Primary, unique, non-unique.
 
 =cut
+
+push @_clone_fields, '_rows_by_key';
 
 sub find_rows_by_key {
 	my ($self, $key, $cols)= @_;

@@ -135,7 +135,7 @@ sub new {
 		= (@_ == 1 && ref $_[0] eq 'ARRAY')? ( with => $_[0] )
 		: (@_ == 1 && ref $_[0] eq 'HASH')? ( %{ $_[0] } )
 		: @_;
-	$self= ref $self? $self->_clone
+	$self= ref $self? $self->clone
 		: bless {
 			generators => {},
 			generator_state => {},
@@ -171,13 +171,16 @@ sub _load_plugin {
 	Carp::croak("Can't load plugin $name: ".join('; ', @fail));
 }
 
-sub _clone {
+sub clone {
 	my $self= shift;
 	my $new= { %$self };
 	$new->{generators}= { %{ $self->{generators} } };
+	for (values %{ $new->{generators} }) {
+		$_= $_->clone if ref->can('clone');
+	}
 	$new->{generator_state}= Storable::dclone($self->generator_state);
 	$new->{_generator_cache}= {};
-	$new;
+	bless $new, ref $self;
 }
 
 =head2 add_generators

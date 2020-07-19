@@ -447,7 +447,8 @@ $INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
   $mockdata->declare_schema($dbic_schema, ...);
   $mockdata->declare_schema($dbic_source, ...);
   $mockdata->declare_schema(\%table_attributes, ...);
-  $mockdata->declare_schema($table_name => \%columns, ...);
+  $mockdata->declare_schema($table_name => \%table_attributes, ...);
+  $mockdata->declare_schema($table_name => \@column_list, ...);
 
 Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
 objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
@@ -466,10 +467,13 @@ sub Mock::Data::Relational::Methods::declare_schema {
 		my $thing= shift;
 		my %ctor;
 		if (!ref $thing) {
-			my $columns= shift;
-			ref $columns eq 'ARRAY' || ref $columns eq 'HASH'
-				or croak "Expected column arrayref or hashref following '$thing' (got $columns)";
-			%ctor= ( name => $thing, columns => $columns );
+			if (ref $_[0] eq 'ARRAY') {
+				%ctor= ( name => $thing, columns => shift );
+			} elsif (ref $_[0] eq 'HASH') {
+				%ctor= ( name => $thing, %{+shift} );
+			} else {
+				croak "Expected column arrayref or attribute hashref following '$thing' (got $_[0])";
+			}
 		}
 		elsif (ref $thing eq 'HASH') {
 			%ctor= ( %$thing );
