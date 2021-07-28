@@ -1,16 +1,4 @@
 package Mock::Data;
-use strict;
-use warnings;
-require Storable;
-require Module::Runtime;
-BEGIN {
-	if ("$]" >= 5.010_000) {
-		require mro;
-	} else {
-		require MRO::Compat;
-	}
-	mro::set_mro __PACKAGE__, 'c3';
-}
 
 =head1 SYNOPSIS
 
@@ -49,6 +37,18 @@ Each mock data generator is called as a method on an instance of C<Mock::Data>. 
 generators to store persistent state between calls.  It also allows them to be configured
 with per-instance settings.
 
+=cut
+
+use strict;
+use warnings;
+BEGIN {
+	require MRO::Compat if "$]" < '5.009005';
+	require mro;
+	mro::set_mro(__PACKAGE__, 'c3');
+}
+require Storable;
+require Module::Runtime;
+
 =head1 ATTRIBUTES
 
 This module defines a minimal number of attributes, to leave most of the method namespace
@@ -61,7 +61,7 @@ to use the existing attributes instead of defining new ones.
   $mock->generators( $new_hashref );  # clears cache
 
 This is a hashref of named things which can generate mock data.  The things can be coderefs,
-arrayrefs (select random element of the array) or instance of Mock::Data::Generator.
+arrayrefs (select random element of the array) or instance of L</Mock::Data::Generator>.
 The data specified here may be cached in various ways after a generator has been called, so
 any time you modify it you should use the methods L</set_generators> or L</merge_generators>.
 However, you may modify it directly and then write the new (or same) hashref to this attribute
@@ -332,3 +332,17 @@ sub _merge_generator_spec {
 }
 
 require Mock::Data::Util;
+
+=head1 SEE ALSO
+
+=over
+
+=item *
+
+L<Data::Faker>
+
+=item *
+
+L<Mock::Populate>
+
+=back

@@ -66,7 +66,7 @@ details are not visible or explained directly in the code of the unit test.
 A maintenance developer seeing the project for the first time must then become
 familiar with all the details of that test data set, and in a large project, the
 test data may become fairly large.  It also becomes a large maintenance burden to
-keep the test data and all the unit tests that depend on it up to date.
+keep the test data up to date, along with all the unit tests that depend on it.
 
 The purpose of this module is to make it easier to declare data in the unit
 test so that you can keep the unit test self-contained.  Consider the following
@@ -136,14 +136,16 @@ This plugin adds the following generators to the L<Mock::Data> instance:
 
 =head2 table
 
-  $rows= $mockdata->table( \%named_args );
-  $rows= $mockdata->table( \%named_args, $name => $rows_or_count );
+  $rows= $mockdata->table( \%options );
+  $rows= $mockdata->table( $name );
+  $rows= $mockdata->table( $name, $rows );
+  $rows= $mockdata->table( $name, $count );
 
 This function returns one table of data, as an arrayref.  Each element of the arrayref
 is a hashref, where the fields are defined either from named arguments to the generator,
 or by a pre-declared schema.
 
-The following named arguments can be given:
+The following named options can be given:
 
 =over
 
@@ -604,3 +606,21 @@ sub _dbic_rel_to_relation_spec {
 }
 
 1;
+
+=head1 SEE ALSO
+
+=over
+
+=item *
+
+L<Cheater>
+
+=item *
+
+L<Data::Faker>
+
+=item *
+
+L<Mock::Populate>
+
+=back
