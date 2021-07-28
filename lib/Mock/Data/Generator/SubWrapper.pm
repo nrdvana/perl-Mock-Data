@@ -6,6 +6,9 @@ require Mock::Data::Generator;
 our @ISA= ( 'Mock::Data::Generator' );
 use overload '""' => sub { shift->to_string };
 
+# ABSTRACT: Wrap a coderef to become a blessed Generator object
+# VERSION
+
 =head1 DESCRIPTION
 
 This is an implementation detail of L<Mock::Data::Generator>.  It wraps coderefs to be

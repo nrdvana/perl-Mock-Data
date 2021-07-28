@@ -6,6 +6,9 @@ require Carp;
 our @ISA= ( 'Exporter' );
 our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass );
 
+# ABSTRACT: Exportable functions to assist with declaring mock data
+# VERSION
+
 =head1 SYNOPSIS
 
   use Mock::Data qw/
@@ -57,8 +60,8 @@ sub weighted_set {
   my $str_or_generator= inflate_template( $string );
 
 This function takes a string and checks it for template substitutions.  If the string
-references templates, this will return a generator object.  If the string does not,
-this will return a plain string literal.
+contains curly brace references, or things that might be mistaken for references, this will
+return a generator object.  If the string does not, this will return a plain string literal.
 
 =cut
 

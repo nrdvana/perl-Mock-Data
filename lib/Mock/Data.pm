@@ -1,9 +1,12 @@
 package Mock::Data;
 
+# ABSTRACT: Extensible toolkit for generating mock data
+# VERSION
+
 =head1 SYNOPSIS
 
   # load it up with data from plugins
-  my $mockdata= Mock::Data->new([qw/ Num Text Contact /);
+  my $mockdata= Mock::Data->new([qw/ Num Text Contact /]);
   
   # generate or pick data from sets
   say $mockdata->integer;    # returns a random integer
@@ -159,7 +162,7 @@ sub _load_plugin {
 				next;
 			}
 			unless ($_->can('apply_mockdata_plugin')) {
-				push @fail, "No method $_->apply_plugin";
+				push @fail, "No method $_->apply_mockdata_plugin";
 				next;
 			}
 		}
@@ -170,6 +173,20 @@ sub _load_plugin {
 	}
 	Carp::croak("Can't load plugin $name: ".join('; ', @fail));
 }
+
+=head2 clone
+
+  $mockdata2= $mockdata->clone;
+
+Calling C<clone> on a C<Mock::Data> instance returns a new C<Mock::Data> of the same class
+with the same plugins and a deep-clone of the L</generator_state> and a shallow clone of the
+L</generators> set.  This may not have the desied effect if one of your generators is storing
+state outside of the L</generator_state> hashref.
+
+C<clone> does not take any arguments.  If you wish to modify the object at the same time as
+cloning a previous one, call L</new> on the previous object instance.
+
+=cut
 
 sub clone {
 	my $self= shift;
@@ -256,6 +273,15 @@ sub merge_generators {
 	}
 	$self;
 }
+
+=head2 call_generator
+
+    $mock->call_generator($name, \%named_params, @positional_params);
+
+This is a more direct way to invoke a generator.  The more convenient way of calling the
+generator name as a method of the object uses C<AUTOLOAD> to call this method.
+
+=cut
 
 sub call_generator {
 	my $self= shift;

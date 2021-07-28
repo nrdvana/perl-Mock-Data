@@ -3,6 +3,9 @@ use strict;
 use warnings;
 use parent 'Mock::Data::Generator';
 
+# ABSTRACT: Generator which returns one item from a set
+# VERSION
+
 =head1 SYNOPSIS
 
   use Mock::Data::Generator 'uniform_set', 'weighted_set';

@@ -6,6 +6,9 @@ use Mock::Data::Util 'coerce_generator';
 use parent 'Mock::Data::Generator';
 our @_clone_fields;
 
+# ABSTRACT: Object representing one defined schema table
+# VERSION
+
 =head1 DESCRIPTION
 
 This class is a L<Mock::Data::Generator|Generator> for a table in the schema.
@@ -104,6 +107,12 @@ sub primary_key { my $pk= shift->keys->{primary}; $pk? $pk->{cols} : undef }
 sub _keys { $_[0]{keys} }
 *keys= *_keys; # reduce pain of "Ambiguous call resolved as CORE::keys()"
 
+=head2 sequence_counters
+
+This is a hashref of sequence names and the associated current count.
+
+=cut
+
 sub sequence_counters { $_[0]{sequence_counters} ||= {} }
 push @_clone_fields, 'sequence_counters';
 
@@ -136,6 +145,12 @@ not-null columns, it will also create the related row (with mock data).
 =cut
 
 sub relationships { $_[0]{relationships} }
+
+=head2 rows
+
+The currently defined rows of data for this table.
+
+=cut
 
 sub rows { $_[0]{rows} }
 push @_clone_fields, 'rows';
@@ -193,6 +208,15 @@ fully populated records.
 C<primary_key> is an alias for C<< keys->{primary}{cols} >>.
 
 =back
+
+=head2 coerce_constructor_args
+
+This is the implementation of the do-what-I-mean portion of L</new>.  It accepts any of the
+shorthand notations described there and returns a hashref of official attributes.
+
+=head2 clone
+
+Return a deep clone of the current instance.
 
 =cut
 

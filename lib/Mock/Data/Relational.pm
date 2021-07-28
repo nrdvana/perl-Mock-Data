@@ -5,6 +5,9 @@ use Carp;
 use Mock::Data::Relational::Table;
 use Mock::Data qw/ mock_data_subclass /;
 
+# ABSTRACT: Mock::Data plugin that generates relational tables of data
+# VERSION
+
 =head1 SYNOPSIS
 
 This L<Mock::Data> plugin supplies a collection of generators that help create
@@ -120,6 +123,7 @@ blanks around the data you care about.
 
 =cut
 
+# Plugin main method, which applies plugin to a Mock::Data instance
 sub apply_mockdata_plugin {
 	my ($class, $mockdata)= @_;
 	$mockdata->add_generators({
@@ -287,7 +291,7 @@ sub tables {
 
 =head2 auto_increment
 
-  $next_id= $mockdata->auto_increment({ table => $t })
+  $next_id= $mockdata->auto_increment({ table => $table_instance })
 
 This generator returns the next value in a sequence.  The sequence is maintained per-table,
 and a named argument of 'table' must be supplied, and it must be a
@@ -303,7 +307,7 @@ sub auto_increment {
 
 =head2 auto_unique
 
-  $random_id= $mockdata->auto_unique({ table => $t, column => $c })
+  $random_id= $mockdata->auto_unique({ table => $table_instance, column => \%col_info })
 
 This generator returns some random value appropriate for the column which is unique from any
 other that has been generated for this column of this table.  The type of the data generated
@@ -530,15 +534,17 @@ sub Mock::Data::Relational::Methods::set_column_mock {
 	}
 }
 
-sub add_generator {
-	my ($self, $name, $spec)= @_;
-	$self->generators->{$name}= $self->compile_generator($spec);
-}
+=head2 default_generator_for_column
 
-sub compile_generator {
-	my $self= shift;
-	Mock::RelationalData::Gen::compile_generator(@_);
-}
+  my $generator= $mock->default_generator_for_column(\%col_info);
+  my $generator= $mock->default_generator_for_column($table, $col);
+
+Given a hashref of DBIx::Class column info, return a generator that can return valid
+values for this column.  Alternately, you can pass a table name (or table reference)
+and column name (or column reference).  In some cases, the table is required to give
+the most correct generator.
+
+=cut
 
 sub default_generator_for_column {
 	my ($self, $table, $col)= @_;

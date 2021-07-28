@@ -2,6 +2,9 @@ package Mock::Data::Text;
 use strict;
 use warnings;
 
+# ABSTRACT: Mock::Data plugin that provides many text-related generators
+# VERSION
+
 =head1 SYNOPSIS
 
   my $mockdata= Mock::Data->new(['Text']);
@@ -19,7 +22,7 @@ sub apply_plugin {
 	my ($class, $mockdata)= @_;
 	$mockdata->merge_generators(
 		map { "${class}::$_" => $class->can($_) }
-		qw( wordchar words lorem_ipsum );
+		qw( wordchar words lorem_ipsum )
 	);
 }
 
@@ -35,17 +38,18 @@ The size defaults to 16, but can be overridden with a named or unnamed argument.
 
 =cut
 
-my @char_set= split //, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-sub wordchar :Export {
+my @alphachar_set= split //, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+my @wordchar_set= ( @alphachar_set, split //, "0123456789_" );
+sub wordchar {
 	my ($reldata, $args, $size)= @_;
 	$size= $args->{size} if !defined $size && $args && defined $args->{size};
-	my $ret= '';
-	$ret .= $char_set[rand scalar @char_set] for 1..$size;
-	return $ret;
+	return join '', map $wordchar_set[rand scalar @wordchar_set], 1..$size;
 }
 
-sub alpha :Export {
-	
+sub alphachar {
+	my ($reldata, $args, $size)= @_;
+	$size= $args->{size} if !defined $size && $args && defined $args->{size};
+	return join '', map $alphachar_set[rand scalar @alphachar_set], 1..$size;
 }
 
 =head2 words
