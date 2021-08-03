@@ -2,28 +2,85 @@
 use Test2::V0;
 use Mock::Data::Charset;
 
+subtest parse_charset => sub {
+	my @tests= (
+		[ 'A',
+			{ chars => [65], ranges => [], classes => [], negate => F() },
+		],
+		[ '^ABC',
+			{ chars => [65,66,67], ranges => [], classes => [], negate => T() },
+		],
+		[ 'A-Z',
+			{ chars => [], ranges => [[65,90]], classes => [], negate => F() },
+		],
+		[ 'A-Za-z',
+			{ chars => [], ranges => [[65,90],[97,122]], classes => [], negate => F() },
+		],
+		[ '-Za-z',
+			{ chars => [ord('-'),90], ranges => [[97,122]], classes => [], negate => F() },
+		],
+		[ 'A-Za-',
+			{ chars => [ord('-'),97], ranges => [[65,90]], classes => [], negate => F() },
+		],
+		[ '\w',
+			{ chars => [], ranges => [], classes => ['word'], negate => F() },
+		],
+		[ '\N{SPACE}',
+			{ chars => [32], ranges => [], classes => [], negate => F() },
+		],
+		[ '\N{SPACE}-0',
+			{ chars => [], ranges => [[32,48]], classes => [], negate => F() },
+		],
+		[ '\p{digit}',
+			{ chars => [], ranges => [], classes => ['digit'], negate => F() },
+		],
+		[ '[:digit:]',
+			{ chars => [], ranges => [], classes => ['digit'], negate => F() },
+		],
+		#[ '\cESC',
+		#	{ chars => [27], ranges => [], classes => [], negate => F() },
+		#]
+	);
+	for (@tests) {
+		my ($spec, $expected)= @$_;
+		is( Mock::Data::Charset::parse_charset($spec), $expected, '['.$spec.']' );
+	}
+};
+
 subtest charset_invlist => sub {
 	my @tests= (
 		[ 'A-Z', 0x7F,
-			[ 65, 91 ]
+			[ 65,91 ]
 		],
-		[ 'A-Z', 0x200,
-			[ 65, 91 ],
+		[ 'A-Z', undef,
+			[ 65,91 ],
 		],
 		[ 'A-Za-z', 0x7F,
-			[ 65, 91, 97, 123 ]
+			[ 65,91, 97,123 ]
 		],
-		[ 'A-Za-z', 0x200,
-			[ 65, 91, 97, 123 ]
+		[ 'A-Za-z', undef,
+			[ 65,91, 97,123 ]
 		],
 		[ '\w', 0x7F,
-			[ 48, 58, 65, 91, 95, 96, 97, 123 ]
+			[ 48,58, 65,91, 95,96, 97,123 ]
+		],
+		[ '\w', 0x200,
+			[ 48,58, 65,91, 95,96, 97,123, 0x100,0x201 ],
+		],
+		[ '\s', 0x7F,
+			[ 9,14, 32,33 ],
+		],
+		[ '\s', undef,
+			[ 9,14, 32,33, 133,134, 160,161, 5760,5761, 8192,8203, 8232,8234, 8239,8240, 8287,8288, 12288,12289 ],
+		],
+		[ '\p{Block: Katakana}', undef,
+			[ 0x30A0, 0x3100 ],
 		],
 	);
 	for (@tests) {
 		my ($notation, $max_codepoint, $expected)= @$_;
 		my $invlist= Mock::Data::Charset::charset_invlist($notation, $max_codepoint);
-		is( $invlist, $expected, "[$notation] ".($max_codepoint <= 127? 'ascii' : 'unicode') );
+		is( $invlist, $expected, "[$notation] ".($max_codepoint && $max_codepoint <= 127? 'ascii' : 'unicode') );
 	}
 };
 
