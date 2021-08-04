@@ -1,6 +1,7 @@
 #! /usr/bin/env perl
 use Test2::V0;
 use Mock::Data::Charset;
+use Data::Dumper;
 
 subtest parse_charset => sub {
 	my @tests= (
@@ -141,6 +142,21 @@ subtest charset_string => sub {
 	like( $str, qr/^[a-z]{20}$/, '[a-z] size=20' );
 	$str= $mock->charset_string({ min_size => 30, max_size => 31 }, '0-9');
 	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
+};
+
+subtest parse_regex => sub {
+	my @tests= (
+		[ qr/abc/, { expr => [ 'abc' ] } ],
+		[ qr/a*/,  { expr => ['a'], min_size => 0 } ],
+		[ qr/a+b/, { expr => [ { expr => ['a'], min_size => 1 }, 'b' ] } ],
+		[ qr/a(ab)*b/, { expr => [ 'a', { expr => ['ab'], min_size => 0 }, 'b' ] } ],
+		[ qr/a[abc]d/, { expr => [ 'a', hash{ chars => [ord 'a', ord 'b', ord 'c']; etc; }, 'd' ] } ],
+	);
+	for (@tests) {
+		my ($regex, $expected)= @$_;
+		my $parse= Mock::Data::Charset::parse_regex($regex);
+		is( $parse, $expected, "regex $regex" ) or diag Data::Dumper::Dumper($parse);
+	}
 };
 
 done_testing;

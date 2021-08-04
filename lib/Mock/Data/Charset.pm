@@ -251,6 +251,7 @@ our %_parse_charset_backslash= (
 	n => ord "\n",
 	N => \&_parse_charset_namedchar,
 	p => \&_parse_charset_classname,
+	P => sub { _parse_charset_classname(shift, 1) },
 	r => ord "\r",
 	s => sub { push @{$_[0]{classes}}, 'space'; undef; },
 	S => sub { push @{$_[0]{classes}}, '^space'; undef; },
@@ -274,6 +275,8 @@ our %_parse_charset_backslash= (
 our %_class_invlist_cache= (
 	'\\h' => \@_backslash_h_invlist,
 	'\\v' => \@_backslash_v_invlist,
+	'Any' => [ 0 ],
+	'\\N' => [ 0, ord("\n"), 1+ord("\n") ],
 );
 sub _class_invlist {
 	my $class= shift;
@@ -299,13 +302,17 @@ sub _parse_charset_oct {
 sub _parse_charset_namedchar {
 	require charnames;
 	/\G \{ ([^}]+) \} /gcx
-		or die "Invalid named char following \\N at '".substr($_,pos,10)."'";
-	return charnames::vianame($1);
+#		or die "Invalid named char following \\N at '".substr($_,pos,10)."'";
+		and return charnames::vianame($1);
+	# Plain "\N" means every character except \n
+	push @{ $_[0]{classes} }, '\\N';
+	return;
 }
 sub _parse_charset_classname {
+	my ($result, $negate)= @_;
 	/\G \{ ([^}]+) \} /gcx
 		or die "Invalid class name following \\p at '".substr($_,pos,10)."'";
-	push @{$_[0]{classes}}, $1;
+	push @{$result->{classes}}, ($negate? "^$1" : $1);
 	undef
 }
 
@@ -534,6 +541,128 @@ sub get_invlist_element {
 			return $invlist->[$mid*2] + $ofs;
 		}
 	}
+}
+
+sub parse_regex {
+	my $re= shift;
+	return _parse_regex({}) for "$re";
+}
+
+our %_regex_syntax_unsupported= (
+	'' => {},
+);
+sub _parse_regex {
+	my $flags= shift || {};
+	my $expr= [];
+	my @or= ( $expr );
+	while (1) {
+		# begin parenthetical sub-expression?
+		if (/\G \( (\?)? /gcx) {
+			my $sub_flags= $flags;
+			if (defined $1) {
+				# leading question mark means regex flags.  This only supports the colon one:
+				/\G ( \^ \w* )? : /gcx
+					or die "Unsupported regex feature '(?".substr($_,pos,10)."'";
+				$sub_flags= { map +( $_ => 1 ), split '', $1 }
+					if defined $1;
+			}
+			my $pos= pos;
+			push @$expr, _parse_regex($sub_flags);
+			/\G \) /gcx
+				or die "Missing end-parenthesee, started at '".substr($_,$pos,10)."'";
+		}
+		# end sub-expression or next alternation?
+		if (/\G ( [|)] ) /gcx) {
+			# end of sub-expression, return.
+			if (ord $1 == ord ')') {
+				# back it up so the caller knows why we exited
+				--pos;
+				last;
+			}
+			# else begin next piece of @or
+			push @or, ($expr= []);
+		}
+		# character class?
+		elsif (/\G ( \[ | \\w | \\W | \\s | \\S | \\d | \\D | \\N | \. ) /gcx) {
+			if (ord $1 == ord '[') {
+				push @$expr, _parse_charset();
+			}
+			elsif (ord $1 == ord '\\') {
+				my $callback= $_parse_charset_backslash{substr($1,1)};
+				my $charset= { classes => [] };
+				$callback->($charset);
+				push @$expr, $charset;
+			}
+			elsif (ord $1 == ord '.') {
+				push @$expr, { classes => [ $flags->{s}? 'Any' : '\\N' ] };
+			}
+			else { ... }
+		}
+		# repetition?
+		elsif (/\G ( \? | \* | \+ | \{ ([0-9]*) (,)? ([0-9]*) \} ) /gcx) {
+			my ($min,$max);
+			if (ord $1 == ord '?') {
+				($min,$max)= (0,1);
+			}
+			elsif (ord $1 == ord '*') {
+				($min,$max)= (0,undef);
+			}
+			elsif (ord $1 == ord '+') {
+				($min,$max)= (1,undef);
+			}
+			else {
+				($min,$max)= ($2,$3);
+				$min ||= 0;
+			}
+			# What came before this?
+			if (!@$expr) {
+				die "Found quantifier '$1' before anything to quantify at '".substr($_,pos)."'";
+			}
+			elsif (!ref $expr->[-1]) {
+				if (length $expr->[-1] > 1) {
+					push @$expr, { expr => [ substr($expr->[-1], -1) ] };
+					substr($expr->[-2], -1)= '';
+				}
+				else {
+					$expr->[-1]= { expr => [ $expr->[-1] ] };
+				}
+			}
+			else {
+				# If a quantifier is being applied to a thing that already had a quantifier
+				#  (such as /X*?/ )
+				# this has no effect on the generator
+				next
+					if defined $expr->[-1]{size}
+					|| defined $expr->[-1]{min_size}
+					|| defined $expr->[-1]{max_size};
+			}
+			if (defined $max && $min == $max) {
+				$expr->[-1]{size}= $min;
+			} else {
+				$expr->[-1]{min_size}= $min;
+				$expr->[-1]{max_size}= $max if defined $max;
+			}
+		}
+		elsif (/\G (\\)? (.) /gcxs) {
+			# Tell users about unsupported features
+			die "Unsupported notation: '$1$2'" if $_regex_syntax_unsupported{$1||''}{$2};	
+			if ($flags->{i} && (uc $2 ne lc $2)) {
+				push @$expr, { chars => [uc $2, lc $2] };
+			}
+			elsif (@$expr && !ref $expr->[-1]) {
+				$expr->[-1] .= $2;
+			}
+			else {
+				push @$expr, $2;
+			}
+		}
+		else {
+			last; # end of string
+		}
+	}
+	return @or > 1? { or => \@or }
+		: @$expr > 1 || !ref $expr->[0]? { expr => $expr }
+		: $expr->[0];
 }
 
 1;
