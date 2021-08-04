@@ -132,4 +132,15 @@ subtest get_invlist_element => sub {
 	}
 };
 
+subtest charset_string => sub {
+	require Mock::Data;
+	my $mock= Mock::Data->new(['Charset']);
+	my $str= $mock->charset_string('A-Z');
+	like( $str, qr/^[A-Z]+$/, '[A-Z], default size' );
+	$str= $mock->charset_string({ size => 20 }, 'a-z');
+	like( $str, qr/^[a-z]{20}$/, '[a-z] size=20' );
+	$str= $mock->charset_string({ min_size => 30, max_size => 31 }, '0-9');
+	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
+};
+
 done_testing;

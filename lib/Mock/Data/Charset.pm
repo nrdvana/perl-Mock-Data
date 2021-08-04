@@ -2,6 +2,152 @@ package Mock::Data::Charset;
 use strict;
 use warnings;
 
+=head1 SYNOPSIS
+
+  $mock= Mock::Data->new(['Charset']);
+  
+  $str= $mock->charset_string({ size => 10 }, 'a-fA-f[:digit:]');
+  
+  $mock->declare_charset_string_generator($name => $charset_pattern, \%defaults);
+  $str= $mock->$name
+
+=head1 DESCRIPTION
+
+This plugin provides generators that select characters from a regex-style charset
+notation.  The charset string should be whatever you would normally write within
+C<< /[ ... ]/ >> in a regular expression.  (This module does not support 100% of
+perl's notations for charsets, but tries pretty hard, including support for C<< \p{} >>
+sequences)
+
+=cut
+
+# Plugin main method, which applies plugin to a Mock::Data instance
+sub apply_mockdata_plugin {
+	my ($class, $mockdata)= @_;
+	$mockdata->add_generators({
+		charset_string => \&charset,
+	});
+	return $mockdata->mock_data_subclass('Mock::Data::Charset::Methods');
+}
+
+@Mock::Data::Charset::Methods::ISA= ( 'Mock::Data' );
+$INC{'Mock/Data/Charset/Methods.pm'}= __FILE__;
+
+*Mock::Data::Charset::Methods::charset_string= *charset;
+*Mock::Data::Charset::Methods::declare_charset_string_generator= *declare_charset_generator;
+
+=head1 METHODS
+
+=head2 charset
+
+  $mock->charset( \%options, $charset, $size );
+
+This is a generator that returns a string by pulling random members from a charset.
+By default, it returns 8 characters, but you can specify a C<size> or C<max_size> to
+control this.
+
+As with all generators, the first argument may be a hashref of named options,
+and any other positional arguments supply specific named arguments for convenience.
+
+Options:
+
+=over
+
+=item charset
+
+The perl regex notation of the character set.
+
+=item size
+
+A fixed number of characters to select from the set
+
+=item min_size
+
+For dynamic-length strings, the minimum number of characters to select.
+
+=item max_size
+
+For dynamic-length strings, the maximum number of characters to select.
+
+=back
+
+=cut
+
+sub charset {
+	my $mock= shift;
+	my %opts= ref $_[0] eq 'HASH'? %{ shift() } : ();
+	$opts{charset}= $_[0] if defined $_[0];
+	$opts{size}= $_[1] if defined $_[1];
+	defined $opts{charset} or die "charset definition is required";
+	my ($invlist, $index)= @{ _charset_info($opts{charset}) }{'invlist','index'};
+	my $size= $opts{size};
+	unless (defined $size) {
+		my $min= $opts{min_size} || 0;
+		my $max= $opts{max_size} || $min + 8;
+		$size= int(rand($max - $min + 1)) + $min;
+	}
+	my $ret= '';
+	$ret .= chr get_invlist_element(int(rand $index->[-1]), $invlist, $index)
+		for 1..$size;
+	return $ret;
+}
+
+our %_charset_cache;
+sub _charset_info {
+	my $notation= shift;
+	$_charset_cache{$notation} ||= do {
+		my $invlist= charset_invlist($notation);
+		my $index= create_invlist_index($invlist);
+		{ invlist => $invlist, index => $index }
+	};
+}
+
+=head2 declare_charset_generator
+
+  $mock->declare_charset_generator($name, $charset, \%default_opts);
+
+Create a named generator for the given charset and default options (such as
+min_size/max_size)
+
+=cut
+
+sub declare_charset_generator {
+	my ($mock, $name, $notation, $default_opts)= @_;
+	my ($invlist, $index)= @{ _charset_info($notation) }{'invlist','index'};
+	my ($size, $min_size, $max_size)= @{ $default_opts || {} }{'size','min_size','max_size'};
+	my $generator= sub {
+		my $n;
+		if (@_ > 1) {
+			if ($_[1] eq 'HASH') {
+				$n= defined $_[2]? $_[2]
+					: do {
+						my %opts= ( %$default_opts, %{$_[1]} );
+						my ($size, $min_size, $max_size)= @opts{'size','min_size','max_size'};
+						if (defined $size) {
+							$n= $size;
+						} else {
+							$min_size ||= 0;
+							$max_size= $min_size + 8 unless defined $max_size;
+							$n= int(rand($max_size-$min_size+1)) + $min_size;
+						}
+					};
+			} elsif (defined $_[1]) {
+				$n= $_[1];
+			} else {
+				$n= defined $size? $size : int(rand($max_size-$min_size+1)) + $min_size;
+			}
+		}
+		else {
+			$n= defined $size? $size : int(rand($max_size-$min_size+1)) + $min_size;
+		}
+		my $ret= '';
+		$ret .= chr get_invlist_element(int(rand $index->[-1]), $invlist, $index)
+			for 1..$n;
+		return $ret;
+	};
+	$mock->merge_generators($name => $generator);
+}
+
 =head1 EXPORTABLE FUNCTIONS
 
 =head2 charset_invlist
