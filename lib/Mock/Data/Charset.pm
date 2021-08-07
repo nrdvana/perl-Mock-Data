@@ -1,6 +1,7 @@
 package Mock::Data::Charset;
 use strict;
 use warnings;
+use List::Util 'shuffle';
 
 =head1 SYNOPSIS
 
@@ -667,6 +668,158 @@ sub _parse_regex {
 	return @or > 1? { or => \@or }
 		: @$expr > 1 || !ref $expr->[0]? { expr => $expr }
 		: $expr->[0];
+}
+
+sub generate_string_for_regex {
+	my $regex= shift;
+	my $parse= parse_regex($regex);
+	my $buf= '';
+	my %flags;
+	_generate_string_for_regex_node($parse, \$buf, \%flags)
+		or die "Regex assertions could not be met (such as '^' or '\$').  Final attempt was: \"".$buf."\"";
+	return $buf;
+	## 75% chance to prefix garbage to the string, unless the pattern is anchored
+	#if (!$flags->{start} && int rand 4) {
+	#	my $prefix= map chr(32 + int rand 96), 1 .. (1+int(rand 8));
+	#	# if /m is in effect, 50% chance that we prefix some random garbage ending with "\n"
+	#	$prefix .= "\n" if $flags->{'^'} && $flags->{m};
+	#	$str= $prefix . $str;
+	#}
+	## if anchored with \Z, append nothing
+	#if ((!$flag->{end} || $flags->{end} eq 'LF'
+	## If anchored with '$', and not flag /m, sometimes append a newline
+	#
+	## 75% chance to suffix garbage to the string, unless the pattern is anchored
+	#if (!($flag->{'$'} && !$flags->{m} 
+	#	if ($flags->{m} && int rand 4) {
+	#		$str= (map chr(1 + int rand 126), 1 .. int(rand 8)) . $str;
+	#	}
+	#}
+	#if ($flags->{'$'}) {
+	#	if ($flags->{m} && int rand(2)) {
+	#	}
+	#}
+}
+
+sub build_generator_for_regex {
+	my $regex= shift;
+	my $parse= parse_regex($regex);
+	return sub {
+		my $buf= '';
+		my %flags;
+		_generate_string_for_regex_node($parse, \$buf, \%flags)
+			or die "Regex assertions could not be met (such as '^' or '\$').  Final attempt was: \"".$buf."\"";
+		return $buf;
+	}
+}
+
+sub _generate_string_for_regex_node {
+	my $parse= shift;
+	#use DDP;
+	#print STDERR "# Node ".&np($parse)."\n";
+	my ($buf_ref, $flags)= @_;
+	# Handle repetitions
+	my $rep= $parse->{repeat};
+	my $n= !defined $rep? 1
+		: !defined $rep->[1]? $rep->[0] + rand(8)
+		: $rep->[0] + rand($rep->[1] - $rep->[0] + 1);
+	#print STDERR "#   n=$n\n";
+	# zero repetitions is automatic success
+	return 1 unless $n;
+	rep: for my $i (1 .. $n) {
+		# If the current node has alternate options, try them in random order until one works
+		if ($parse->{or}) {
+			my $orig_len= length $$buf_ref;
+			my %orig_flags= %$flags;
+			# Pick one at random.  It will almost always work on the first try, unless the user
+			# has anchor constraints in the pattern.
+			my $opt= $parse->{or}[ rand scalar @{$parse->{or}} ];
+			next rep if _generate_string_for_regex_node($opt, @_);
+			# if it fails, try all the others in random order
+			for (shuffle grep { $_ != $opt } @{$parse->{or}}) {
+				# reset output
+				substr($$buf_ref, $orig_len)= '';
+				%$flags= %orig_flags;
+				# append something new
+				next rep if _generate_string_for_regex_node($_, @_);
+			}
+			# failure...
+			return 0;
+		}
+		# If the node is an expression, build a string from each part and concatenate them
+		elsif ($parse->{expr}) {
+			for (@{$parse->{expr}}) {
+				# If it's a literal string, append that.
+				if (!ref $_) {
+					# can't append if string is finalized
+					return 0 if $flags->{end} && $flags->{end} eq '1';
+					$$buf_ref .= $_;
+					delete $flags->{end}; # end flag no longer applies
+					delete $flags->{can_add_LF};
+				}
+				# Else process the node
+				else {
+					_generate_string_for_regex_node($_, @_)
+						or return 0;
+				}
+			}
+		}
+		# If the node has an 'at' requirement, see if we can match it.
+		# If not, give up on this attempt.
+		elsif ($parse->{at}) {
+			my ($start, $end)= @{$parse->{at}}{'start','end'};
+			if ($start) {
+				# If regex used /m the '^' may refer to start of string or a line.
+				# If any output has been added, then this is the only way {at}{start} can succeed.
+				if (!length $$buf_ref) {
+					# successful match at start of string.
+					# This '^' marker adds the requirement for the whole output.
+					$flags->{start}= $start;
+					next rep;
+				}
+				if ($start eq 'LF') {
+					# does output already end with "\n"?  then it's a match.
+					next rep if $$buf_ref =~ /\n\Z/;
+					# Can we append "\n" according to the previous node?
+					# TODO: determmine whether chars can be appended, or if final char may become LF
+					if ($flags->{can_add_LF}) {
+						$$buf_ref .= "\n";
+						next rep;
+					}
+				}
+				# failure
+				return 0;
+			}
+			if ($end) {
+				# IF $end is '1', it means only the absolute end of the string can match.
+				# Any other variant may consume (and therefore generate) a linefeed.
+				# Maybe append an additional linefeed if one is already present.
+				if ($end ne '1') {
+					if (int rand 2) {
+						$$buf_ref .= "\n";
+						$end= 1 if $end eq 'FinalLF'; # FinalLF now needs to be actual end
+					}
+					else {
+						$flags->{can_add_LF}++;
+					}
+				}
+				$flags->{end}= $end;
+			}
+		}
+		else {
+			# It is a character set.  Build the inversion list if not built yet.
+			$parse->{invlist}   ||= _parsed_charset_to_invlist($parse, $parse->{flags}{a}? 127 : 0x10FFFF);
+			$parse->{inv_index} ||= create_invlist_index($parse->{invlist});
+			#print STDERR "# select from ".join(", ", $parse->{invlist})."\n";
+			# can't append if string is finalized
+			return 0 if $flags->{end} && $flags->{end} eq '1';
+			# Select a random character
+			$$buf_ref .= chr get_invlist_element(int rand($parse->{inv_index}[-1]), $parse->{invlist}, $parse->{inv_index});
+			delete $flags->{can_add_LF};
+			delete $flags->{end};
+		}
+	}
+	return 1;
 }
 
 1;

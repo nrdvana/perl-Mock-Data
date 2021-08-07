@@ -180,15 +180,15 @@ subtest parse_regex => sub {
 	}
 };
 
-0 && subtest regex_generator => sub {
+subtest regex_generator => sub {
 	my @tests= (
 		qr/^abc$/,
 		qr/abc/,
 		qr/a+b/,
 		qr/a(ab)*b/,
 		qr/a[abc]d/,
-		qr/a(ab$)*/,
-		qr/a(ab$)*/m,
+		#qr/a(ab$)*/,
+		#qr/a(ab$)*/m,
 	);
 	my $mock= Mock::Data->new();
 	for my $regex (@tests) {

@@ -358,6 +358,7 @@ sub _merge_generator_spec {
 }
 
 require Mock::Data::Util;
+*mock_data_subclass= *Mock::Data::Util::mock_data_subclass;
 
 =head1 SEE ALSO
 
