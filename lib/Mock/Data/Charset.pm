@@ -551,7 +551,8 @@ sub parse_regex {
 }
 
 our %_regex_syntax_unsupported= (
-	'' => {},
+	'' => { map { $_ => 1 } qw( $ ) },
+	'\\' => { map { $_ => 1 } qw( B b A Z z G g K k ) },
 );
 sub _parse_regex {
 	my $flags= shift || {};
@@ -585,36 +586,45 @@ sub _parse_regex {
 			push @or, ($expr= []);
 		}
 		# character class?
-		elsif (/\G ( \[ | \\w | \\W | \\s | \\S | \\d | \\D | \\N | \. ) /gcx) {
+		elsif (/\G ( \[ | \\w | \\W | \\s | \\S | \\d | \\D | \\N | \\Z | \. | \^ | \$ ) /gcx) {
 			if (ord $1 == ord '[') {
 				push @$expr, _parse_charset();
 			}
 			elsif (ord $1 == ord '\\') {
-				my $callback= $_parse_charset_backslash{substr($1,1)};
-				my $charset= { classes => [] };
-				$callback->($charset);
-				push @$expr, $charset;
+				if ($1 eq "\\Z") {
+					push @$expr, { at => { end => 1 } }
+				}
+				else {
+					my $callback= $_parse_charset_backslash{substr($1,1)};
+					my $charset= { classes => [] };
+					$callback->($charset);
+					push @$expr, $charset;
+				}
 			}
 			elsif (ord $1 == ord '.') {
 				push @$expr, { classes => [ $flags->{s}? 'Any' : '\\N' ] };
 			}
-			else { ... }
+			elsif (ord $1 == ord '$') {
+				push @$expr, { at => { end => ($flags->{m}? 'LF' : 'FinalLF') } };
+			}
+			elsif (ord $1 == ord '^') {
+				push @$expr, { at => { start => ($flags->{m}? 'LF' : 1 ) } };
+			}
 		}
 		# repetition?
 		elsif (/\G ( \? | \* | \+ | \{ ([0-9]*) (,)? ([0-9]*) \} ) /gcx) {
-			my ($min,$max);
+			my @rep;
 			if (ord $1 == ord '?') {
-				($min,$max)= (0,1);
+				@rep= (0,1);
 			}
 			elsif (ord $1 == ord '*') {
-				($min,$max)= (0,undef);
+				@rep= (0);
 			}
 			elsif (ord $1 == ord '+') {
-				($min,$max)= (1,undef);
+				@rep= (1);
 			}
 			else {
-				($min,$max)= ($2,$3);
-				$min ||= 0;
+				@rep= $3? ($2||0,$4) : ($2||0,$2);
 			}
 			# What came before this?
 			if (!@$expr) {
@@ -633,17 +643,9 @@ sub _parse_regex {
 				# If a quantifier is being applied to a thing that already had a quantifier
 				#  (such as /X*?/ )
 				# this has no effect on the generator
-				next
-					if defined $expr->[-1]{size}
-					|| defined $expr->[-1]{min_size}
-					|| defined $expr->[-1]{max_size};
+				next if defined $expr->[-1]{repeat};
 			}
-			if (defined $max && $min == $max) {
-				$expr->[-1]{size}= $min;
-			} else {
-				$expr->[-1]{min_size}= $min;
-				$expr->[-1]{max_size}= $max if defined $max;
-			}
+			$expr->[-1]{repeat}= \@rep;
 		}
 		elsif (/\G (\\)? (.) /gcxs) {
 			# Tell users about unsupported features

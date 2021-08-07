@@ -159,15 +159,46 @@ subtest charset_string => sub {
 subtest parse_regex => sub {
 	my @tests= (
 		[ qr/abc/, { expr => [ 'abc' ] } ],
-		[ qr/a*/,  { expr => ['a'], min_size => 0 } ],
-		[ qr/a+b/, { expr => [ { expr => ['a'], min_size => 1 }, 'b' ] } ],
-		[ qr/a(ab)*b/, { expr => [ 'a', { expr => ['ab'], min_size => 0 }, 'b' ] } ],
+		[ qr/a*/,  { expr => ['a'], repeat => [0,] } ],
+		[ qr/a+b/, { expr => [ { expr => ['a'], repeat => [1,] }, 'b' ] } ],
+		[ qr/a(ab)*b/, { expr => [ 'a', { expr => ['ab'], repeat => [0,] }, 'b' ] } ],
 		[ qr/a[abc]d/, { expr => [ 'a', hash{ chars => [ord 'a', ord 'b', ord 'c']; etc; }, 'd' ] } ],
+		[ qr/^a/,   { expr => [ { at => { start => 1    } },    'a' ] } ],
+		[ qr/^a/m,  { expr => [ { at => { start => 'LF' } },    'a' ] } ],
+		[ qr/a$/,   { expr => [ 'a', { at => { end => 'FinalLF' } } ] } ],
+		[ qr/a$/m,  { expr => [ 'a', { at => { end => 'LF'      } } ] } ],
+		[ qr/a\Z/m, { expr => [ 'a', { at => { end => 1         } } ] } ],
+		[ qr/\w/m, { classes => ['word'] } ],
+		[ qr/\w+\d+/, { expr => [{ classes => ['word'], repeat => [1,] },{ classes => ['digit'], repeat => [1,] }] } ],
+		[ qr/(abc\w+)?/, { expr => [ 'abc', { classes => ['word'], repeat => [1,] } ], repeat => [0,1] } ],
 	);
 	for (@tests) {
 		my ($regex, $expected)= @$_;
 		my $parse= Mock::Data::Charset::parse_regex($regex);
-		is( $parse, $expected, "regex $regex" ) or diag Data::Dumper::Dumper($parse);
+		is( $parse, $expected, "regex $regex" )
+			or diag Data::Dumper::Dumper($parse);
+	}
+};
+
+0 && subtest regex_generator => sub {
+	my @tests= (
+		qr/^abc$/,
+		qr/abc/,
+		qr/a+b/,
+		qr/a(ab)*b/,
+		qr/a[abc]d/,
+		qr/a(ab$)*/,
+		qr/a(ab$)*/m,
+	);
+	my $mock= Mock::Data->new();
+	for my $regex (@tests) {
+		subtest "regex $regex" => sub {
+			my $generator= Mock::Data::Charset::build_generator_for_regex($regex);
+			for (1..10) {
+				my $str= $generator->($mock);
+				like( $str, $regex, "Str=$str" );
+			}
+		};
 	}
 };
 
