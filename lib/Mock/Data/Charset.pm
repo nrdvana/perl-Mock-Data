@@ -250,6 +250,7 @@ our %_parse_charset_backslash= (
 	H => sub { push @{$_[0]{classes}}, '^\\h'; undef; },
 	n => ord "\n",
 	N => \&_parse_charset_namedchar,
+	o => \&_parse_charset_oct,
 	p => \&_parse_charset_classname,
 	P => sub { _parse_charset_classname(shift, 1) },
 	r => ord "\r",
@@ -290,14 +291,15 @@ sub _class_invlist {
 	};
 }
 sub _parse_charset_hex {
-	/\G( [0-9A-Za-z] [0-9A-Za-z]? )/gcx
-		or die "Unexpected hex escape at '".substr($_,pos,10)."'";
-	return hex $1;
+	/\G( [0-9A-Fa-f]{2} | \{ ([0-9A-Fa-f]+) \} )/gcx
+		or die "Invalid hex escape at '".substr($_,pos,10)."'";
+	return hex(defined $2? $2 : $1);
 }
 sub _parse_charset_oct {
-	/\G( [0-7]{1,3} ) /gcx
+	--pos; # The caller ate one of the characters we need to parse
+	/\G( 0 | [0-7]{3} | o\{ ([0-7]+) \} ) /gcx
 		or die "Invalid octal escape at '".substr($_,pos,10)."'";
-	return oct $1;
+	return oct(defined $2? $2 : $1);
 }
 sub _parse_charset_namedchar {
 	require charnames;
