@@ -1,54 +1,56 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Charset;
+use Mock::Data::Generator::Charset;
+use Mock::Data;
 use Data::Dumper;
+sub charset { Mock::Data::Generator::Charset->new(@_) }
 
 subtest parse_charset => sub {
 	my @tests= (
 		[ 'A',
-			{ chars => [65], ranges => [], classes => [], negate => F() },
+			{ codepoints => [65] },
 		],
 		[ '^ABC',
-			{ chars => [65,66,67], ranges => [], classes => [], negate => T() },
+			{ codepoints => [65,66,67], negate => T() },
 		],
 		[ 'A-Z',
-			{ chars => [], ranges => [[65,90]], classes => [], negate => F() },
+			{ codepoint_ranges => [65,90], },
 		],
 		[ 'A-Za-z',
-			{ chars => [], ranges => [[65,90],[97,122]], classes => [], negate => F() },
+			{ codepoint_ranges => [65,90, 97,122], },
 		],
 		[ '-Za-z',
-			{ chars => [ord('-'),90], ranges => [[97,122]], classes => [], negate => F() },
+			{ codepoints => [ord('-'),90], codepoint_ranges => [97,122] },
 		],
 		[ 'A-Za-',
-			{ chars => [ord('-'),97], ranges => [[65,90]], classes => [], negate => F() },
+			{ codepoints => [ord('-'),97], codepoint_ranges => [65,90] },
 		],
 		[ '\w',
-			{ chars => [], ranges => [], classes => ['word'], negate => F() },
+			{ classes => ['word'] },
 		],
 		[ '\N{SPACE}',
-			{ chars => [32], ranges => [], classes => [], negate => F() },
+			{ codepoints => [32] },
 		],
 		[ '\N{SPACE}-0',
-			{ chars => [], ranges => [[32,48]], classes => [], negate => F() },
+			{ codepoint_ranges => [32,48] },
 		],
 		[ '\p{digit}',
-			{ chars => [], ranges => [], classes => ['digit'], negate => F() },
+			{ classes => ['digit'] },
 		],
 		[ '[:digit:]',
-			{ chars => [], ranges => [], classes => ['digit'], negate => F() },
+			{ classes => ['digit'] },
 		],
 		[ '\\0',
-			{ chars => [0], ranges => [], classes => [], negate => F() },
+			{ codepoints => [0] },
 		],
 		[ '\\o{0}',
-			{ chars => [0], ranges => [], classes => [], negate => F() },
+			{ codepoints => [0] },
 		],
 		[ '\\x20',
-			{ chars => [0x20], ranges => [], classes => [], negate => F() },
+			{ codepoints => [0x20] },
 		],
 		[ '\\x{450}',
-			{ chars => [0x450], ranges => [], classes => [], negate => F() },
+			{ codepoints => [0x450] },
 		],
 		#[ '\cESC',
 		#	{ chars => [27], ranges => [], classes => [], negate => F() },
@@ -56,7 +58,7 @@ subtest parse_charset => sub {
 	);
 	for (@tests) {
 		my ($spec, $expected)= @$_;
-		is( Mock::Data::Charset::parse_charset($spec), $expected, '['.$spec.']' );
+		is( Mock::Data::Generator::Charset::parse($spec), $expected, '['.$spec.']' );
 	}
 };
 
@@ -92,7 +94,7 @@ subtest charset_invlist => sub {
 	);
 	for (@tests) {
 		my ($notation, $max_codepoint, $expected)= @$_;
-		my $invlist= Mock::Data::Charset::charset_invlist($notation, $max_codepoint);
+		my $invlist= charset(notation => $notation, max_codepoint => $max_codepoint)->member_invlist;
 		is( $invlist, $expected, "[$notation] ".($max_codepoint && $max_codepoint <= 127? 'ascii' : 'unicode') );
 	}
 };
@@ -108,7 +110,7 @@ subtest expand_invlist_members => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $members= Mock::Data::Charset::expand_invlist_members($invlist);
+		my $members= Mock::Data::Generator::Charset::_expand_invlist_members($invlist);
 		is( $members, $expected, $name );
 	}
 };
@@ -122,7 +124,7 @@ subtest create_invlist_index => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $index= Mock::Data::Charset::create_invlist_index($invlist);
+		my $index= Mock::Data::Generator::Charset::_create_invlist_index($invlist);
 		is( $index, $expected, $name );
 	}
 };
@@ -138,21 +140,20 @@ subtest get_invlist_element => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $ofs, $expected)= @$_;
-		my $index= Mock::Data::Charset::create_invlist_index($invlist);
-		my $members= Mock::Data::Charset::expand_invlist_members($invlist);
+		my $charset= charset(member_invlist => $invlist);
+		my $members= $charset->members;
 		is( $members->[$ofs], $expected, "$name - expect $members->[$ofs]" );
-		is( Mock::Data::Charset::get_invlist_element($ofs, $invlist, $index), $expected, $name );
+		is( $charset->get_member($ofs), $expected, $name );
 	}
 };
 
 subtest charset_string => sub {
-	require Mock::Data;
-	my $mock= Mock::Data->new(['Charset']);
-	my $str= $mock->charset_string('A-Z');
+	my $mock= Mock::Data->new();
+	my $str= charset('A-Z')->generate($mock);
 	like( $str, qr/^[A-Z]+$/, '[A-Z], default size' );
-	$str= $mock->charset_string({ size => 20 }, 'a-z');
+	$str= charset('a-z')->generate($mock, { size => 20 });
 	like( $str, qr/^[a-z]{20}$/, '[a-z] size=20' );
-	$str= $mock->charset_string({ min_size => 30, max_size => 31 }, '0-9');
+	$str= charset('0-9')->generate($mock, { min_size => 30, max_size => 31 });
 	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
 };
 
@@ -162,7 +163,7 @@ subtest parse_regex => sub {
 		[ qr/a*/,  { expr => ['a'], repeat => [0,] } ],
 		[ qr/a+b/, { expr => [ { expr => ['a'], repeat => [1,] }, 'b' ] } ],
 		[ qr/a(ab)*b/, { expr => [ 'a', { expr => ['ab'], repeat => [0,] }, 'b' ] } ],
-		[ qr/a[abc]d/, { expr => [ 'a', hash{ chars => [ord 'a', ord 'b', ord 'c']; etc; }, 'd' ] } ],
+		[ qr/a[abc]d/, { expr => [ 'a', hash{ item chars => [ord 'a', ord 'b', ord 'c']; etc; }, 'd' ] } ],
 		[ qr/^a/,   { expr => [ { at => { start => 1    } },    'a' ] } ],
 		[ qr/^a/m,  { expr => [ { at => { start => 'LF' } },    'a' ] } ],
 		[ qr/a$/,   { expr => [ 'a', { at => { end => 'FinalLF' } } ] } ],

@@ -4,7 +4,9 @@ use warnings;
 require Exporter;
 require Carp;
 our @ISA= ( 'Exporter' );
-our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass );
+our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
+	charset
+);
 
 # ABSTRACT: Exportable functions to assist with declaring mock data
 # VERSION
@@ -53,6 +55,19 @@ sub uniform_set {
 
 sub weighted_set {
 	return Mock::Data::Generator::Set->new_weighted(@_);
+}
+
+=head2 charset
+
+  $generator= charset('A-Z');
+
+Shortcut for L<Mock::Data::Generator::Charset/new>, which takes a perl-regex-notation
+character set string, or list of attributes.
+
+=cut
+
+sub charset {
+	return Mock::Data::Generator::Charset->new(@_);
 }
 
 =head2 inflate_template
