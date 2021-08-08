@@ -11,8 +11,8 @@ use Carp ();
   # Use perl's regex notation for [] charsets
   my $charset = charset('A-Za-z');
           ... = charset('\p{alpha}\s\d');
-          ... = charset(class => 'digit');
-          ... = charset(range => ['a','z']);
+          ... = charset(classes => ['digit']);
+          ... = charset(ranges => ['a','z']);
           ... = charset(chars => ['a','e','i','o','u']);
   
   # Test membership
@@ -45,44 +45,74 @@ strings.
 
   $charset= Mock::Data::Generator::Charset->new( %options );
   $charset= charset( %options );
-  $charset= charset( $regex_spec );
+  $charset= charset( $notation );
 
-The constructor takes any of the following options:
+If you supply a single non-hashref argument to the constructor, it is assumed to be the
+L</notation> string.  Otherwise, it is treated as key/value pairs.  You may specify the
+members of the charset by one of the attributes C<notation>, C<members>, or
+C<member_invlist>, or construct it from the following charset-building options:
 
 =over
 
 =item chars
 
-An arrayref of literal character values to include in the set
+An arrayref of literal character values to include in the set.
+
+=item codepoints
+
+An arrayref of Unicode codepoint numbers.
 
 =item ranges
+
+  ranges => [ ['a','z'], ['0', '9'] ],
+  ranges => [ 'a', 'z', '0', '9' ],
 
 An arrayref holding start/end pairs of characters, optionally with inner arrayrefs for each
 start/end pair.
 
+=item codepoint_ranges
+
+Same as C<ranges> but with codepoint numbers instead of characters.
+
 =item classes
 
-An arrayref of character class names recognized by perl (such as Posix or Unicode classes)
+An arrayref of character class names recognized by perl (such as Posix or Unicode classes).
+
+=item negate
+
+Negate the membership of the charset as described by C<chars>/C<ranges>/C<classes>.
+This applies to the charset-building options, but has no effect on attributes.
 
 =back
 
-The constructor may also be given defaults for any of the options of the L</generate|generator>
-(see below).
+The constructor may also be given any of the keys for L</generate_opts>, which will be moved
+into that attribute.
 
 For convenience, you may export the L<Mock::Data::Util/charset> which calls this constructor.
+
+If you call C<new> on an object, it carries over the following settings to the new object:
+C<max_codepoint>, C<generator_opts>, C<member_invlist> (unless chars change).
 
 =cut
 
 sub new {
 	my $class= shift;
+	my (%self, %parse);
 	# make the common case fast
-	return bless { notation => $_[0] }, $class
-		if @_ == 1 && !ref $_[0];
+	if (@_ == 1 && !ref $_[0]) {
+		qr/[$_[0]]/;
+		%self= ( notation => $_[0] );
+		if (ref $class) {
+			$self{generator_opts} ||= { %{ $class->{generator_opts} } };
+			$self{max_codepoint}  //= $class->{max_codepoint};
+			$class= ref $class;
+		}
+		return bless \%self, $class;
+	}
 
-	my %self= @_ != 1? @_ : %{$_[0]};
+	%self= @_ != 1? @_ : %{$_[0]};
 
 	# Look for fields from the parser
-	my %parse;
 	$parse{classes}= delete $self{classes} if defined $self{classes};
 	$parse{codepoints}= delete $self{codepoints} if defined $self{codepoints};
 	$parse{codepoint_ranges}= delete $self{codepoint_ranges} if defined $self{codepoint_ranges};
@@ -97,14 +127,39 @@ sub new {
 				@{$self{ranges}};
 		delete $self{ranges};
 	}
-	if (keys %parse) {
-		$self{_parse}= \%parse;
+
+	# Look for attributes of generator_opts
+	for (qw( size min_size max_size min_codepoint )) {
+		$self{generator_opts}{$_}= delete $self{$_}
+			if defined $self{$_};
 	}
 
-	# At least one of members, member_invlist, notation, or _parse must be specified
-	Carp::croak "Require at least one attribute of: members, member_invlist, notation, classes,"
-		. " codepoints, codepoint_ranges, ranges"
-		unless $self{members} || $self{member_invlist} || $self{notation} || $self{_parse};
+	# If called on an object, carry over some settings
+	if (ref $class) {
+		if (!keys %parse && !defined $self{notation} && !$self{members} && !$self{member_invlist}) {
+			@self{'_parse','notation','members','member_invlist'}=
+				@{$class}{'_parse','notation','members','member_invlist'};
+		}
+		$self{generator_opts} ||= { %{ $class->{generator_opts} } };
+		$self{max_codepoint}  //= $class->{max_codepoint};
+		$class= ref $class;
+	}
+
+	if (defined $self{notation} && !keys %parse) {
+		# want to trigger the syntax error exception now, not lazily later on
+		qr/[$self{notation}]/;
+	}
+	elsif (keys %parse) {
+		$self{_parse}= \%parse;
+		Carp::croak("Charset-building options (classes, chars, codepoints, ranges, codepoint_ranges, negate)"
+			." cannot be combined with members, member_invlist or notation attributes")
+			if $self{members} or $self{member_invlist}; # allow notation to preserve original text
+	}
+	else {
+		# At least one of members, member_invlist, notation, or _parse must be specified
+		Carp::croak("Require at least one of members, member_invlist, notation, or charset-building options")
+			unless $self{members} or $self{member_invlist};
+	}
 	
 	return bless \%self, $class;
 }
@@ -136,6 +191,22 @@ sub _parse {
 
 =head1 ATTRIBUTES
 
+=head2 notation
+
+A Perl Regex charset notation; the text that occurs between '[...]' in a regex. (Note
+that if you use backslash notations, like C<< notation => '\w' >>, you should either use a
+single-quoted string, or escape them as C<< "\\w" >>.
+
+This returns the same string that was passed to the constructor, if you gave the constructor
+a regex-notation string instead of more specific attributes.  If you did not, a generic-looking
+notation will be built on demand.  Read-only.
+
+=cut
+
+sub notation {
+	$_[0]{notation} //= _deparse($_[0]->_parse);
+}
+
 =head2 max_codepoint
 
 Maximum unicode codepoint to be considered.  Read-only.  If you are only interested in a subset
@@ -146,23 +217,6 @@ speed up the calculations on the character set.
 
 sub max_codepoint {
 	$_[0]{max_codepoint}
-}
-
-=head2 notation
-
-This returns the same string that was passed to the constructor, if you gave the constructor
-a regex-notation string instead of more specific attributes.  Else it constructs one from the
-attributes. Read-only.
-
-=cut
-
-sub _ord_to_safe_regex_char {
-	return chr($_[0]) =~ /[\w]/? chr $_[0]
-		: $_[0] <= 0xFF? sprintf('\x%02X',$_[0])
-		: sprintf('\x{%X}',$_[0])
-}
-sub notation {
-	$_[0]{notation} //= _deparse($_[0]->_parse);
 }
 
 =head2 generate_opts
@@ -184,12 +238,53 @@ sub count {
 	$_[0]->_invlist_index->[-1];
 }
 
-sub _invlist_index {
-	my $self= shift;
-	$self->{_invlist_index} ||= _create_invlist_index($self->member_invlist);
+=head2 members
+
+Returns an arrayref of each character in the set.  Try not to use this attribute, as building
+it can be very expensive for common sets like C<< [:alpha:] >> (100K members, tens of MB
+of RAM).  Use L</member_invlist> or L</get_member> instead, when possible, or set
+L</max_codepoint> to restrict the set to characters you care about.
+
+=cut
+
+sub members {
+	$_[0]{members} ||= $_[0]->_build_members;
 }
 
-sub _create_invlist_index {
+sub _build_members {
+	my $self= shift;
+	my $invlist= $self->member_invlist;
+	my @members;
+	if (@$invlist > 1) {
+		push @members, map chr, $invlist->[$_*2] .. ($invlist->[$_*2+1]-1)
+			for 0 .. (($#$invlist-1)>>1);
+	}
+	# an odd number of elements means the list ends with an "include-all"
+	push @members, map chr, $invlist->[-1] .. 0x10FFFF
+		if 1 & @$invlist;
+	return \@members;
+}
+
+sub Mock::Data::Generator::Charset::Util::expand_invlist {
+	my $invlist= shift;
+	my @members;
+	if (@$invlist > 1) {
+		push @members, $invlist->[$_*2] .. ($invlist->[$_*2+1]-1)
+			for 0 .. (($#$invlist-1)>>1);
+	}
+	# an odd number of elements means the list ends with an "include-all"
+	push @members, $invlist->[-1] .. 0x10FFFF
+		if 1 & @$invlist;
+	return \@members;
+}
+
+# The index is private because there's not a good way to explain it to the user
+sub _invlist_index {
+	my $self= shift;
+	$self->{_invlist_index} ||= Mock::Data::Generator::Charset::Util::create_invlist_index($self->member_invlist);
+}
+
+sub Mock::Data::Generator::Charset::Util::create_invlist_index {
 	my $invlist= shift;
 	my $n_spans= (@$invlist + 1) >> 1;
 	my @index;
@@ -201,65 +296,6 @@ sub _create_invlist_index {
 		$index[$n_spans-1]= $total + 0x110000 - $invlist->[-1];
 	}
 	\@index;
-}
-
-=head2 get_member
-
-  my $char= $charset->get_member($offset);
-
-Return the Nth character of the set, starting from 0.  Returns undef for values
-greater or equal to L</count>.  You can use negative offsets to index from the
-end of the list, like in C<substr>.
-
-=cut
-
-sub get_member {
-	_get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
-}
-
-sub _get_invlist_element {
-	my ($ofs, $invlist, $invlist_index)= @_;
-	$ofs += @$invlist_index if $ofs < 0;
-	return undef if $ofs >= $invlist_index->[-1] || $ofs < 0;
-	my ($min, $max, $mid)= (0, $#$invlist_index);
-	while (1) {
-		$mid= ($min+$max) >> 1;
-		if ($ofs >= $invlist_index->[$mid]) {
-			$min= $mid+1
-		}
-		elsif ($mid > 0 && $ofs < $invlist_index->[$mid-1]) {
-			$max= $mid-1
-		}
-		else {
-			$ofs -= $invlist_index->[$mid-1] if $mid > 0;
-			return $invlist->[$mid*2] + $ofs;
-		}
-	}
-}
-
-=head2 members
-
-Returns an arrayref of each character in the set.  Try not to use this attribute, as building
-it can be very expensive for common sets like C<< [:alpha:] >> (100K members, tens of MB
-of RAM).  Use L</member_invlist> instead, when possible.
-
-=cut
-
-sub members {
-	$_[0]{members} ||= _expand_invlist_members($_[0]->member_invlist);
-}
-
-sub _expand_invlist_members {
-	my $invlist= shift;
-	my @members;
-	if (@$invlist > 1) {
-		push @members, $invlist->[$_*2] .. ($invlist->[$_*2+1]-1)
-			for 0 .. (($#$invlist-1)>>1);
-	}
-	# an odd number of elements means the list ends with an "include-all"
-	push @members, $invlist->[-1] .. 0x10FFFF
-		if 1 & @$invlist;
-	return \@members;
 }
 
 =head2 member_invlist
@@ -277,6 +313,8 @@ sub member_invlist {
 	if (@_ > 1) {
 		$_[0]{member_invlist}= $_[1]; 
 		delete $_[0]{_invlist_index};
+		delete $_[0]{members};
+		delete $_[0]{notation};
 	}
 	$_[0]{member_invlist} //= _build_member_invlist(@_);
 }
@@ -309,7 +347,7 @@ sub _charset_invlist_brute_force {
 	my @invlist;
 	my $match;
 	for (0..$max_codepoint) {
-		next unless $match xor (chr($_) =~ $re);
+		next unless $match xor (chr =~ $re);
 		push @invlist, $_;
 		$match= !$match;
 	}
@@ -359,60 +397,13 @@ sub _parsed_charset_to_invlist {
 		push @invlists, _class_invlist($_)
 			for @{ $parse->{classes} };
 	}
-	my $invlist= _combine_invlists(\@invlists, $max_codepoint);
+	my $invlist= Mock::Data::Generator::Util::merge_invlists(\@invlists, $max_codepoint);
 	# Perform negation of inversion list by either starting at char 0 or removing char 0
 	if ($parse->{negate}) {
 		if ($invlist->[0]) { unshift @$invlist, 0 }
 		else { shift @$invlist; }
 	}
 	return $invlist;
-}
-
-sub _combine_invlists {
-	my ($invlists, $max_codepoint)= @_;
-	return [] unless $invlists && @$invlists;
-	my @combined= ();
-	# Repeatedly select the minimum range among the input lists and add it to the result
-	while (@$invlists) {
-		my ($min_ch, $min_i)= ($invlists->[0][0], 0);
-		# Find which inversion list contains the lowest range
-		for (my $i= 1; $i < @$invlists; $i++) {
-			if ($invlists->[$i][0] < $min_ch) {
-				$min_ch= $invlists->[$i][0];
-				$min_i= $i;
-			}
-		}
-		last if $min_ch > $max_codepoint;
-		# Check for overlap of this new inclusion range with the previous
-		if (@combined && $combined[-1] >= $min_ch) {
-			# they overlap, so just replace the end-codepoint of the range
-			pop @combined;
-			shift @{$invlists->[$min_i]};
-			push @combined, shift @{$invlists->[$min_i]};
-		}
-		else {
-			# else, simply append the range
-			push @combined, splice @{$invlists->[$min_i]}, 0, 2;
-		}
-		# If this is the only list remaining, append the rest and done
-		if (@$invlists == 1) {
-			push @combined, @{$invlists->[$min_i]};
-			last;
-		}
-		# If the list is empty now, remove it from consideration
-		splice @$invlists, $min_i, 1 unless @{$invlists->[$min_i]};
-		# If the invlist ends with an infinite range now, we are done
-		last if 1 & scalar @combined;
-	}
-	while ($combined[-1] > $max_codepoint) {
-		pop @combined;
-	}
-	# If the list ends with inclusion, and the max_codepoint is less than unicode max,
-	# end the list with it.
-	if (1 & @combined and $max_codepoint < 0x10FFFF) {
-		push @combined, $max_codepoint+1;
-	}
-	return \@combined;
 }
 
 =head1 METHODS
@@ -522,6 +513,8 @@ This dies if it encounters a syntax error or any Perl feature that wasn't implem
 
 sub parse {
 	my ($self, $notation)= @_;
+	return { codepoints => [] } unless length $notation;
+	return { classes => ['All'] } if $notation eq '^';
 	$notation .= ']';
 	# parse function needs $_ to be the input string
 	pos($notation)= 0;
@@ -681,6 +674,13 @@ sub _parse_charset {
 	}
 	return \%parse;
 }
+
+sub _ord_to_safe_regex_char {
+	return chr($_[0]) =~ /[\w]/? chr $_[0]
+		: $_[0] <= 0xFF? sprintf('\x%02X',$_[0])
+		: sprintf('\x{%X}',$_[0])
+}
+
 sub _deparse_charset {
 	my $parse= shift;
 	my $str= '';
@@ -698,6 +698,157 @@ sub _deparse_charset {
 		$str .= '\p{' . $cl . '}';
 	}
 	return $str;
+}
+
+=head2 get_member
+
+  my $char= $charset->get_member($offset);
+
+Return the Nth character of the set, starting from 0.  Returns undef for values
+greater or equal to L</count>.  You can use negative offsets to index from the
+end of the list, like in C<substr>.
+
+=head2 get_member_codepoint
+
+Same as L</get_member> but returns a codepoint integer instead of a character.
+
+=cut
+
+sub get_member {
+	chr _get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
+}
+
+sub get_member_codepoint {
+	_get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
+}
+
+sub _get_invlist_element {
+	my ($ofs, $invlist, $invlist_index)= @_;
+	$ofs += @$invlist_index if $ofs < 0;
+	return undef if $ofs >= $invlist_index->[-1] || $ofs < 0;
+	# Binary Search to find the range that contains this numbered element
+	my ($min, $max, $mid)= (0, $#$invlist_index);
+	while (1) {
+		$mid= ($min+$max) >> 1;
+		if ($ofs >= $invlist_index->[$mid]) {
+			$min= $mid+1
+		}
+		elsif ($mid > 0 && $ofs < $invlist_index->[$mid-1]) {
+			$max= $mid-1
+		}
+		else {
+			$ofs -= $invlist_index->[$mid-1] if $mid > 0;
+			return $invlist->[$mid*2] + $ofs;
+		}
+	}
+}
+
+=head2 negate
+
+  my $charset2= $charset->negate;
+
+Return a new charset which contains exactly the opposite characters as this one, up to the
+L</max_codepoint> if defined.
+
+=cut
+
+sub negate {
+	my $self= shift;
+	my @invlist= @{ $self->member_invlist };
+	# Toggle first char of 0
+	if ($invlist[0]) { unshift @invlist, 0 }
+	else { shift @invlist; }
+	# If max_codepoint is defined, and was the final char, remove the range starting at max_codepoint+1
+	if (@invlist & 1 and defined $self->max_codepoint and $invlist[-1] == $self->max_codepoint+1) {
+		pop @invlist;
+	}
+	return $self->new(member_invlist => \@invlist);
+}
+
+=head2 union
+
+  my $charset3= $charset1->union($charset2, ...);
+
+Merge one or more charsets.  The result contains every character of any set, but clamped to
+the L<max_codepoint> of the current set.
+
+The arguments may also be plain inversion list arrayrefs instead of charset objects.
+
+=cut
+
+sub union {
+	my $self= $_[0];
+	my @invlists= @_;
+	ref eq 'ARRAY' || ($_= $_->member_invlist)
+		for @invlists;
+	my $combined= Mock::Data::Generator::Util::merge_invlists(\@invlists, $self->max_codepoint);
+	return $self->new(member_invlist => $combined);
+}
+
+#=head2 merge_invlists
+#
+#  my $combined_invlist= $charset->merge_invlist( \@list2, \@list3, ... );
+#  my $combined_invlist= merge_invlist( \@list1, \@list2, ... );
+#
+#Merge one or more inversion lists into a superset of all of them.
+#If called as a method, the L</member_invlist> is used as the first list.
+#
+#The return value is an inversion list, which can be wrapped in a Charset object by passing it
+#as the C<member_invlist> attribute.
+#
+#The current L</max_codepoint> applies to the result.  If called as a plain function, the
+#C<max_codepoint> is assumed to be the Unicode maximum of C<0x10FFFF>.
+#
+#=cut
+
+sub Mock::Data::Generator::Util::merge_invlists {
+	my @invlists= @{shift()};
+	my $max_codepoint= shift // 0x10FFFF;
+
+	return [] unless @invlists;
+	return [@{$invlists[0]}] unless @invlists > 1;
+	my @combined= ();
+	# Repeatedly select the minimum range among the input lists and add it to the result
+	while (@invlists) {
+		my ($min_ch, $min_i)= ($invlists[0][0], 0);
+		# Find which inversion list contains the lowest range
+		for (my $i= 1; $i < @invlists; $i++) {
+			if ($invlists[$i][0] < $min_ch) {
+				$min_ch= $invlists[$i][0];
+				$min_i= $i;
+			}
+		}
+		last if $min_ch > $max_codepoint;
+		# Check for overlap of this new inclusion range with the previous
+		if (@combined && $combined[-1] >= $min_ch) {
+			# they overlap, so just replace the end-codepoint of the range
+			pop @combined;
+			shift @{$invlists[$min_i]};
+			push @combined, shift @{$invlists[$min_i]};
+		}
+		else {
+			# else, simply append the range
+			push @combined, splice @{$invlists[$min_i]}, 0, 2;
+		}
+		# If this is the only list remaining, append the rest and done
+		if (@invlists == 1) {
+			push @combined, @{$invlists[$min_i]};
+			last;
+		}
+		# If the list is empty now, remove it from consideration
+		splice @invlists, $min_i, 1 unless @{$invlists[$min_i]};
+		# If the invlist ends with an infinite range now, we are done
+		last if 1 & scalar @combined;
+	}
+	while ($combined[-1] > $max_codepoint) {
+		pop @combined;
+	}
+	# If the list ends with inclusion, and the max_codepoint is less than unicode max,
+	# end the list with it.
+	if (1 & @combined and $max_codepoint < 0x10FFFF) {
+		push @combined, $max_codepoint+1;
+	}
+	return \@combined;
 }
 
 1;

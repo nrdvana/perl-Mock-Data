@@ -58,7 +58,7 @@ subtest parse_charset => sub {
 	);
 	for (@tests) {
 		my ($spec, $expected)= @$_;
-		is( Mock::Data::Generator::Charset::parse($spec), $expected, '['.$spec.']' );
+		is( Mock::Data::Generator::Charset->parse($spec), $expected, '['.$spec.']' );
 	}
 };
 
@@ -110,7 +110,7 @@ subtest expand_invlist_members => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $members= Mock::Data::Generator::Charset::_expand_invlist_members($invlist);
+		my $members= Mock::Data::Generator::Charset::Util::expand_invlist($invlist);
 		is( $members, $expected, $name );
 	}
 };
@@ -124,7 +124,7 @@ subtest create_invlist_index => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $index= Mock::Data::Generator::Charset::_create_invlist_index($invlist);
+		my $index= Mock::Data::Generator::Charset::Util::create_invlist_index($invlist);
 		is( $index, $expected, $name );
 	}
 };
@@ -142,8 +142,8 @@ subtest get_invlist_element => sub {
 		my ($name, $invlist, $ofs, $expected)= @$_;
 		my $charset= charset(member_invlist => $invlist);
 		my $members= $charset->members;
-		is( $members->[$ofs], $expected, "$name - expect $members->[$ofs]" );
-		is( $charset->get_member($ofs), $expected, $name );
+		is( ord $members->[$ofs], $expected, "$name - expect $members->[$ofs]" );
+		is( $charset->get_member_codepoint($ofs), $expected, $name );
 	}
 };
 
