@@ -150,6 +150,16 @@ subtest get_invlist_element => sub {
 	}
 };
 
+subtest get_member_find_member => sub {
+	my $charset= charset('[:punct:]');
+	for (my $i= 0; $i < $charset->count; $i++) {
+		my $ch= $charset->get_member($i);
+		is( $charset->find_member($ch), $i, "found $ch at $i" );
+	}
+	is( [ $charset->find_member("\n") ], [ undef, 0 ], '\n would insert at position 0' );
+	is( [ $charset->find_member("A") ], [ undef, 17 ], '[ would insert at position 26' );
+};
+
 subtest charset_string => sub {
 	my $mock= Mock::Data->new();
 	my $str= charset('A-Z')->generate($mock);
@@ -160,6 +170,8 @@ subtest charset_string => sub {
 	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
 	$str= charset('0-9')->generate($mock, 1);
 	like( $str, qr/^[0-9]$/, '[0-9] size=1' );
+	$str= charset('0-9')->generate($mock, { max_codepoint => ord '0' }, 50);
+	like( $str, qr/^0+$/, '[0-9] max_codepoint => /0+/' );
 };
 
 done_testing;

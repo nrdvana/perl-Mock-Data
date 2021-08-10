@@ -259,7 +259,8 @@ The number of members in the set.  Read-only.
 =cut
 
 sub count {
-	$_[0]->_invlist_index->[-1];
+	$_[0]{members}? scalar @{$_[0]{members}}
+		: $_[0]->_invlist_index->[-1];
 }
 
 =head2 members
@@ -455,12 +456,42 @@ sub generate {
 		my $max= $opts{max_len} // $self->max_len // 8;
 		$len= $min + int rand($max - $min + 1);
 	}
-	my $invlist= $self->member_invlist;
-	my $index= $self->_invlist_index;
+	my $cp_min= $opts{min_codepoint} // $self->min_codepoint;
+	my $cp_max= $opts{max_codepoint} // $self->max_codepoint;
+	my $count= $self->count;
+	my ($memb_min, $memb_span)= !defined $cp_min && !defined $cp_max? (0,$count)
+		: $self->_codepoint_minmax_to_member_range($cp_min, $cp_max);
+
 	my $ret= '';
-	$ret .= chr _get_invlist_element(int(rand $index->[-1]), $invlist, $index)
-		for 1..$len;
+	# If member list is small-ish, use faster direct array access
+	if ($self->{members} || $count < 500) {
+		my $members= $self->members;
+		$ret .= $members->[$memb_min + int rand $memb_span]
+			for 1..$len;
+	}
+	else {
+		my $invlist= $self->member_invlist;
+		my $index= $self->_invlist_index;
+		$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
+			for 1..$len;
+	}
 	return $ret;
+}
+
+sub _codepoint_minmax_to_member_range {
+	my $self= shift;
+	my ($cp_min, $cp_max)= @_;
+	my $memb_min= !defined $cp_min? 0
+		: do {
+			my ($at, $ins)= _find_invlist_element($cp_min, $self->member_invlist, $self->_invlist_index);
+			$at // $ins
+		};
+	my $memb_lim= !defined $cp_max? $self->count
+		: do {
+			my ($at, $ins)= _find_invlist_element($cp_max, $self->member_invlist, $self->_invlist_index);
+			defined $at? $at + 1 : $ins;
+		};
+	return ($memb_min, $memb_lim-$memb_min);
 }
 
 sub compile {
@@ -470,30 +501,73 @@ sub compile {
 	my $default_len= $self->str_len;
 	my $default_min= $self->min_len;
 	my $default_max= $self->max_len;
-	return sub {
-		# my ($mockdata, \%options, $size)= @_;
-		my $len;
-		if (@_ > 1) {
-			# If a new hashref of options is given, merge those with the defaults
-			if ($_[1] eq 'HASH') {
-				$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
-					// do {
-						my $min= $_[1]{min_len} // $default_min;
-						my $max= $_[1]{max_len} // $default_max;
-						$min + int rand($max - $min + 1);
-					};
-			# else a single scalar option is $size
-			} elsif (defined $_[1]) {
-				$len= $_[1];
+	my ($default_memb_min, $default_memb_span)=
+		$self->_codepoint_minmax_to_member_range($self->min_codepoint, $self->max_codepoint);
+
+	# If member list is small-ish, use faster direct array access
+	if ($self->{members} || $self->count < 500) {
+		my $members= $self->members;
+		return sub {
+			# my ($mockdata, \%options, $size)= @_;
+			my ($memb_min, $memb_span, $len)= ($default_memb_min, $default_memb_span);
+			if (@_ > 1) {
+				# If a new hashref of options is given, merge those with the defaults
+				if ($_[1] eq 'HASH') {
+					$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
+						// do {
+							my $min= $_[1]{min_len} // $default_min;
+							my $max= $_[1]{max_len} // $default_max;
+							$min + int rand($max - $min + 1);
+						};
+					($memb_min, $memb_span)= $self->_codepoint_minmax_to_member_range(
+						$_[1]{min_codepoint} // $self->min_codepoint,
+						$_[1]{max_codepoint} // $self->max_codepoint
+					) if defined $_[1]{min_codepoint} || defined $_[1]{max_codepoint};
+				# else a single scalar option is $size
+				} elsif (defined $_[1]) {
+					$len= $_[1];
+				}
+			} else {
+				$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
 			}
-		} else {
-			$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
-		}
-		my $ret= '';
-		$ret .= chr _get_invlist_element(int(rand $index->[-1]), $invlist, $index)
-			for 1..$len;
-		return $ret;
-	};
+			my $ret= '';
+			$ret .= $members->[$memb_min + int rand $memb_span]
+				for 1..$len;
+			return $ret;
+		};
+	}
+	else {
+		my $invlist= $self->member_invlist;
+		my $index= $self->_invlist_index;
+		return sub {
+			# my ($mockdata, \%options, $size)= @_;
+			my ($memb_min, $memb_span, $len)= ($default_memb_min, $default_memb_span);
+			if (@_ > 1) {
+				# If a new hashref of options is given, merge those with the defaults
+				if ($_[1] eq 'HASH') {
+					$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
+						// do {
+							my $min= $_[1]{min_len} // $default_min;
+							my $max= $_[1]{max_len} // $default_max;
+							$min + int rand($max - $min + 1);
+						};
+					($memb_min, $memb_span)= $self->_codepoint_minmax_to_member_range(
+						$_[1]{min_codepoint} // $self->min_codepoint,
+						$_[1]{max_codepoint} // $self->max_codepoint
+					) if defined $_[1]{min_codepoint} || defined $_[1]{max_codepoint};
+				# else a single scalar option is $size
+				} elsif (defined $_[1]) {
+					$len= $_[1];
+				}
+			} else {
+				$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
+			}
+			my $ret= '';
+			$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
+				for 1..$len;
+			return $ret;
+		};
+	}
 }
 
 =head2 parse
@@ -706,7 +780,11 @@ sub _deparse_charset {
 	}
 	if (my $cl= $parse->{classes}) {
 		# TODO: reverse conversions to \h \v etc.
-		$str .= '\p{' . $cl . '}';
+		for (@$cl) {
+			$str .= $_ eq '\N'? '\0-\x09\x0B-\x{10FFFF}'
+				: ord == ord '^'? '\P{'.substr($_,1).'}'
+				: '\p{'.$_.'}';
+		}
 	}
 	return $str;
 }
@@ -750,6 +828,44 @@ sub _get_invlist_element {
 		else {
 			$ofs -= $invlist_index->[$mid-1] if $mid > 0;
 			return $invlist->[$mid*2] + $ofs;
+		}
+	}
+}
+
+=head2 find_member
+
+  my ($offset, $ins_pos)= $charset->find_member($char);
+
+Return the index of a character within the members list.  If the character is not a member,
+this returns undef, but if you call it in array context the second element gives the position
+where it would be found if it was a member.
+
+=cut
+
+sub find_member {
+	my ($self, $char)= @_;
+	return _find_invlist_element(ord $char, $self->member_invlist, $self->_invlist_index);
+}
+
+sub _find_invlist_element {
+	my ($codepoint, $invlist, $index)= @_;
+	# Binary Search to find the range that contains this numbered element
+	my ($min, $max, $mid)= (0, $#$invlist);
+	while (1) {
+		$mid= ($min+$max) >> 1;
+		if ($mid > 0 && $codepoint < $invlist->[$mid]) {
+			$max= $mid-1
+		}
+		elsif ($mid < $#$invlist && $codepoint >= $invlist->[$mid+1]) {
+			$min= $mid+1;
+		}
+		else {
+			return (undef, 0) unless $codepoint >= $invlist->[$mid];
+			return $codepoint - $invlist->[$mid] unless $mid > 0;
+			return $codepoint - $invlist->[$mid] + $index->[($mid >> 1) - 1] unless $mid & 1;
+			# if $mid is an odd number, the range is excluded, and there is no match
+			return undef unless wantarray;
+			return (undef, $index->[($mid-1)>>1]) # return insertion point as second val
 		}
 	}
 }
