@@ -43,6 +43,9 @@ subtest parse_charset => sub {
 		[ '\\0',
 			{ codepoints => [0] },
 		],
+		[ '\\012',
+			{ codepoints => [10] },
+		],
 		[ '\\o{0}',
 			{ codepoints => [0] },
 		],
@@ -151,56 +154,12 @@ subtest charset_string => sub {
 	my $mock= Mock::Data->new();
 	my $str= charset('A-Z')->generate($mock);
 	like( $str, qr/^[A-Z]+$/, '[A-Z], default size' );
-	$str= charset('a-z')->generate($mock, { size => 20 });
+	$str= charset('a-z')->generate($mock, { len => 20 });
 	like( $str, qr/^[a-z]{20}$/, '[a-z] size=20' );
-	$str= charset('0-9')->generate($mock, { min_size => 30, max_size => 31 });
+	$str= charset('0-9')->generate($mock, { min_len => 30, max_len => 31 });
 	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
-};
-
-subtest parse_regex => sub {
-	my @tests= (
-		[ qr/abc/, { expr => [ 'abc' ] } ],
-		[ qr/a*/,  { expr => ['a'], repeat => [0,] } ],
-		[ qr/a+b/, { expr => [ { expr => ['a'], repeat => [1,] }, 'b' ] } ],
-		[ qr/a(ab)*b/, { expr => [ 'a', { expr => ['ab'], repeat => [0,] }, 'b' ] } ],
-		[ qr/a[abc]d/, { expr => [ 'a', hash{ item chars => [ord 'a', ord 'b', ord 'c']; etc; }, 'd' ] } ],
-		[ qr/^a/,   { expr => [ { at => { start => 1    } },    'a' ] } ],
-		[ qr/^a/m,  { expr => [ { at => { start => 'LF' } },    'a' ] } ],
-		[ qr/a$/,   { expr => [ 'a', { at => { end => 'FinalLF' } } ] } ],
-		[ qr/a$/m,  { expr => [ 'a', { at => { end => 'LF'      } } ] } ],
-		[ qr/a\Z/m, { expr => [ 'a', { at => { end => 1         } } ] } ],
-		[ qr/\w/m, { classes => ['word'] } ],
-		[ qr/\w+\d+/, { expr => [{ classes => ['word'], repeat => [1,] },{ classes => ['digit'], repeat => [1,] }] } ],
-		[ qr/(abc\w+)?/, { expr => [ 'abc', { classes => ['word'], repeat => [1,] } ], repeat => [0,1] } ],
-	);
-	for (@tests) {
-		my ($regex, $expected)= @$_;
-		my $parse= Mock::Data::Charset::parse_regex($regex);
-		is( $parse, $expected, "regex $regex" )
-			or diag Data::Dumper::Dumper($parse);
-	}
-};
-
-subtest regex_generator => sub {
-	my @tests= (
-		qr/^abc$/,
-		qr/abc/,
-		qr/a+b/,
-		qr/a(ab)*b/,
-		qr/a[abc]d/,
-		#qr/a(ab$)*/,
-		#qr/a(ab$)*/m,
-	);
-	my $mock= Mock::Data->new();
-	for my $regex (@tests) {
-		subtest "regex $regex" => sub {
-			my $generator= Mock::Data::Charset::build_generator_for_regex($regex);
-			for (1..10) {
-				my $str= $generator->($mock);
-				like( $str, $regex, "Str=$str" );
-			}
-		};
-	}
+	$str= charset('0-9')->generate($mock, 1);
+	like( $str, qr/^[0-9]$/, '[0-9] size=1' );
 };
 
 done_testing;

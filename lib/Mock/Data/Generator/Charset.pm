@@ -2,6 +2,7 @@ package Mock::Data::Generator::Charset;
 use strict;
 use warnings;
 use Carp ();
+our @CARP_NOT= ('Mock::Data::Util');
 
 =head1 SYNOPSIS
 
@@ -204,8 +205,13 @@ notation will be built on demand.  Read-only.
 =cut
 
 sub notation {
-	$_[0]{notation} //= _deparse($_[0]->_parse);
+	$_[0]{notation} //= _deparse_charset($_[0]->_parse);
 }
+
+=head2 min_codepoint
+
+Minimum codepoint to be returned from the generator.  Read/write.  This is useful if you want
+to eliminate control characters (or maybe just NULs) in your output.
 
 =head2 max_codepoint
 
@@ -215,22 +221,40 @@ speed up the calculations on the character set.
 
 =cut
 
+sub min_codepoint {
+	$_[0]{min_codepoint}= $_[1] if @_ > 1;
+	$_[0]{min_codepoint}
+}
 sub max_codepoint {
 	$_[0]{max_codepoint}
 }
 
-=head2 generate_opts
+=head2 min_len
 
-Default options to pass to L</generate> (and will be combined with an options given to the
-function directly).
+Specify the lower limit for the random number of characters to return from L</generate>.
+
+=head2 max_len
+
+Specify the upper limit for the random number of characters to return from L</generate>.
+
+=head2 str_len
+
+This is a shortcut for setting both C<min_size> and C<max_size>.  Reading it will return
+C<undef> if C<min_size> and C<max_size> are not the same.
 
 =cut
 
-sub generate_opts { $_[0]{generate_opts} ||= {} }
+sub min_len { $_[0]{min_len}= $_[1] if @_ > 1; $_[0]{min_len} // 1 }
+sub max_len { $_[0]{max_len}= $_[1] if @_ > 1; $_[0]{max_len} // 8 }
+sub str_len {
+	my ($self, $size)= @_;
+	$self->{min_len}= $self->{max_len}= $size if @_ > 1;
+	return $self->{min_len} == $self->{max_len}? $self->{min_len} : undef;
+}
 
 =head2 count
 
-The number of members in the set
+The number of members in the set.  Read-only.
 
 =cut
 
@@ -244,6 +268,8 @@ Returns an arrayref of each character in the set.  Try not to use this attribute
 it can be very expensive for common sets like C<< [:alpha:] >> (100K members, tens of MB
 of RAM).  Use L</member_invlist> or L</get_member> instead, when possible, or set
 L</max_codepoint> to restrict the set to characters you care about.
+
+Read-only.
 
 =cut
 
@@ -410,32 +436,9 @@ sub _parsed_charset_to_invlist {
 
 =head2 generate
 
-=over
-
-=item min_codepoint
-
-Clamp the set to a minimum codepoint, like C<1> or C<32>.
-
-=item max_codepoint
-
-Clamp the set to a maximum codepoint, like C<127>.
-
-=item size
-
-Specify the number of characters to return in the string.  This is a shortbut for setting both
-C<min_size> and C<max_size>.
-
-=item min_size
-
-Specify the minimum number of characters to return in the string.  The number will be random
-between the minimum and maximum.
-
-=item max_size
-
-Specify the maximum number of characters to return in the string.  The number will be random
-between the minimum and maximum.
-
-=back
+Generate a string of characters from this charset.  The C<%options> may override the following
+attributes: L</min_codepoint>, L</max_codepoint> (but only smaller values), L</str_len>,
+L</min_len>, L</max_len>.
 
 =head2 compile
 
@@ -446,51 +449,49 @@ Return a plain coderef that invokes L</generate> on this object.
 sub generate {
 	my ($self, $mock)= (shift, shift);
 	my %opts= ref $_[0] eq 'HASH'? %{ shift() } : ();
-	my $size= shift // $opts{size};
-	unless (defined $size) {
-		my $min_size= $opts{min_size} // $self->generate_opts->{size} // $self->generate_opts->{min_size} // 1;
-		my $max_size= $opts{max_size} // $self->generate_opts->{size} // $self->generate_opts->{max_size} // 8;
-		$size= $min_size + int rand($max_size - $min_size + 1);
+	my $len= @_? shift : $opts{str_len} // $opts{len} // $opts{size};
+	unless (defined $len) {
+		my $min= $opts{min_len} // $self->min_len // 1;
+		my $max= $opts{max_len} // $self->max_len // 8;
+		$len= $min + int rand($max - $min + 1);
 	}
 	my $invlist= $self->member_invlist;
 	my $index= $self->_invlist_index;
 	my $ret= '';
 	$ret .= chr _get_invlist_element(int(rand $index->[-1]), $invlist, $index)
-		for 1..$size;
+		for 1..$len;
 	return $ret;
 }
 
 sub compile {
 	my $self= shift;
-	my $invlist= $self->inversion_list;
-	my $index= $self->_inversion_list_index;
-	my $default_opt= $self->generate_opts;
-	my $default_size= $default_opt->{size};
-	my $default_min= $default_size // $default_opt->{min_size} // 1;
-	my $default_max= $default_size // $default_opt->{max_size} // 8;
+	my $invlist= $self->member_invlist;
+	my $index= $self->_invlist_index;
+	my $default_len= $self->str_len;
+	my $default_min= $self->min_len;
+	my $default_max= $self->max_len;
 	return sub {
 		# my ($mockdata, \%options, $size)= @_;
-		my $size;
+		my $len;
 		if (@_ > 1) {
 			# If a new hashref of options is given, merge those with the defaults
 			if ($_[1] eq 'HASH') {
-				$size= defined $_[2]? $_[2]
-					: defined $_[1]{size}? $_[1]{size}
-					: do {
-						my $min= $_[1]{min_size} // $default_min;
-						my $max= $_[1]{max_size} // $default_max;
-						$size= $min + int rand($max - $min + 1);
+				$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
+					// do {
+						my $min= $_[1]{min_len} // $default_min;
+						my $max= $_[1]{max_len} // $default_max;
+						$min + int rand($max - $min + 1);
 					};
-			# else a single scalar option is is $size
+			# else a single scalar option is $size
 			} elsif (defined $_[1]) {
-				$size= $_[1];
+				$len= $_[1];
 			}
 		} else {
-			$size= $default_size // ($default_min + int rand($default_max - $default_min + 1));
+			$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
 		}
 		my $ret= '';
 		$ret .= chr _get_invlist_element(int(rand $index->[-1]), $invlist, $index)
-			for 1..$size;
+			for 1..$len;
 		return $ret;
 	};
 }
@@ -519,6 +520,16 @@ sub parse {
 	# parse function needs $_ to be the input string
 	pos($notation)= 0;
 	return _parse_charset() for $notation;
+}
+
+my %_escape_common= ( "\n" => '\n', "\t" => '\t', "\0" => '\0' );
+sub _escape_str {
+	my $str= shift;
+	$str =~ s/([^\x20-\x7E])/ $_escape_common{$1} || sprintf("\\x{%02X}",ord $1) /ge;
+	return $str;
+}
+sub _parse_context {
+	return '"' . _escape_str(substr($_, pos, 10)) .'"';
 }
 
 our $have_prop_invlist;
@@ -581,13 +592,13 @@ sub _class_invlist {
 }
 sub _parse_charset_hex {
 	/\G( [0-9A-Fa-f]{2} | \{ ([0-9A-Fa-f]+) \} )/gcx
-		or die "Invalid hex escape at '".substr($_,pos,10)."'";
+		or die "Invalid hex escape at "._parse_context;
 	return hex(defined $2? $2 : $1);
 }
 sub _parse_charset_oct {
 	--pos; # The caller ate one of the characters we need to parse
-	/\G( 0 | [0-7]{3} | o\{ ([0-7]+) \} ) /gcx
-		or die "Invalid octal escape at '".substr($_,pos,10)."'";
+	/\G( [0-7]{3} | 0 | o\{ ([0-7]+) \} ) /gcx
+		or die "Invalid octal escape at "._parse_context;
 	return oct(defined $2? $2 : $1);
 }
 sub _parse_charset_namedchar {
@@ -602,7 +613,7 @@ sub _parse_charset_namedchar {
 sub _parse_charset_classname {
 	my ($result, $negate)= @_;
 	/\G \{ ([^}]+) \} /gcx
-		or die "Invalid class name following \\p at '".substr($_,pos,10)."'";
+		or die "Invalid class name following \\p at "._parse_context;
 	push @{$result->{classes}}, ($negate? "^$1" : $1);
 	undef
 }
@@ -634,7 +645,7 @@ sub _parse_charset {
 			}
 			elsif ($1 eq '[:') {
 				/\G ( [^:]+ ) :] /gcx
-					or die "Invalid character class at '".substr($_,pos,10)."'";
+					or die "Invalid character class at "._parse_context;
 				push @{$parse{classes}}, $1;
 			}
 			else {

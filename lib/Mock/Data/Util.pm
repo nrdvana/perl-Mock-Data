@@ -354,4 +354,5 @@ sub _name_for_combined_isa {
 
 # included last, because they depend on this module.
 require Mock::Data::Generator::Set;
+require Mock::Data::Generator::Charset;
 require Mock::Data::Generator::SubWrapper;
