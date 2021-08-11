@@ -65,6 +65,30 @@ subtest parse_charset => sub {
 	}
 };
 
+subtest merge_invlists => sub {
+	my @tests= (
+		[ [ 0, 1, 2, 3 ], [ 1, 2, 3, 4 ] ]
+			=> [ 0, 4 ],
+		[ [ 0, 50 ], [ 50 ] ]
+			=> [ 0 ],
+		[ [ 0, 50 ], [ 0, 50 ] ]
+			=> [ 0, 50 ],
+		[ [ 0, 50 ], [ 0, 51 ] ]
+			=> [ 0, 51 ],
+		[ [ 0, 50 ], [ 1, 50 ] ]
+			=> [ 0, 50 ],
+		[ [ 0, 50 ], [ 1, 49 ] ]
+			=> [ 0, 50 ],
+		[ [ 0, 50 ], [ 1, 51 ] ]
+			=> [ 0, 51 ],
+		[ [ 10, 20 ], [ 0, 10, 20 ] ],
+			=> [ 0 ],
+	);
+	while (my ($input, $output)= splice(@tests, 0, 2)) {
+		is( Mock::Data::Generator::Charset::Util::merge_invlists($input), $output );
+	}
+};
+
 subtest charset_invlist => sub {
 	my @tests= (
 		[ 'A-Z', 0x7F,
@@ -93,6 +117,18 @@ subtest charset_invlist => sub {
 		],
 		[ '\p{Block: Katakana}', undef,
 			[ 0x30A0, 0x3100 ],
+		],
+		[ '^[:digit:]', 0x7F,
+			[ 0,0x30, 0x3A,0x80 ],
+		],
+		[ '[:alpha:]\P{digit}', 0x7F,
+			[ 0,0x30, 0x3A,0x80 ],
+		],
+		[ '\p{alpha}\P{alpha}', undef,
+			[ 0 ],
+		],
+		[ '^\n', undef,
+			[ 0,10, 11 ]
 		],
 	);
 	for (@tests) {
@@ -158,6 +194,27 @@ subtest get_member_find_member => sub {
 	}
 	is( [ $charset->find_member("\n") ], [ undef, 0 ], '\n would insert at position 0' );
 	is( [ $charset->find_member("A") ], [ undef, 17 ], '[ would insert at position 26' );
+};
+
+subtest lazy_attributes => sub {
+	my $charset= charset('[:alpha:]\P{digit}');
+	diag Data::Dumper::Dumper($charset->member_invlist);
+	ok( !$charset->find_member('0'), '"0" not in the set of alpha and non-digit' );
+	is( scalar $charset->find_member('a'), 87, 'member "a" found at 87' );
+	ok( defined $charset->{member_invlist} && defined $charset->{_invlist_index}, 'used invlist' );
+	ok( !defined $charset->{members}, 'did not use members[]' );
+	
+	$charset= charset(classes => ['alpha','^digit']);
+	ok( !$charset->find_member('0'), '"0" not in the set of alpha and non-digit' );
+	is( scalar $charset->find_member('a'), 87, 'member "a" found at 87' );
+	ok( defined $charset->{member_invlist} && defined $charset->{_invlist_index}, 'used invlist' );
+	ok( !defined $charset->{members}, 'did not use members[]' );
+
+	$charset= charset(notation => '[:alpha:]\P{digit}', max_codepoint => 127);
+	is( $#{$charset->members}, 117, '117 ascii non-digit chars' );
+	is( $charset->get_member(87), 'a', 'found a at expected offset' );
+	ok( defined $charset->{members}, 'used members[]' );
+	ok( !defined $charset->{_invlist_index}, 'did not use invlist index' );
 };
 
 subtest charset_string => sub {

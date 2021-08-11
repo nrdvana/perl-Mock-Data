@@ -356,7 +356,7 @@ sub _build_member_invlist {
 		$max_codepoint ||= 0x10FFFF;
 		$invlist= eval {
 			_parsed_charset_to_invlist($self->_parse, $max_codepoint);
-		};
+		}# or main::diag $@
 	}
 	$invlist ||= _charset_invlist_brute_force($self->notation, $max_codepoint);
 	# If a user writes to the invlist, it will become out of sync with the Index,
@@ -424,7 +424,7 @@ sub _parsed_charset_to_invlist {
 		push @invlists, _class_invlist($_)
 			for @{ $parse->{classes} };
 	}
-	my $invlist= Mock::Data::Generator::Util::merge_invlists(\@invlists, $max_codepoint);
+	my $invlist= Mock::Data::Generator::Charset::Util::merge_invlists(\@invlists, $max_codepoint);
 	# Perform negation of inversion list by either starting at char 0 or removing char 0
 	if ($parse->{negate}) {
 		if ($invlist->[0]) { unshift @$invlist, 0 }
@@ -655,8 +655,11 @@ our %_class_invlist_cache= (
 );
 sub _class_invlist {
 	my $class= shift;
-	return _class_invlist(substr($class,1))
-		if ord $class == ord '^';
+	if (ord $class == ord '^') {
+		return Mock::Data::Generator::Charset::Util::negate_invlist(
+			_class_invlist(substr($class,1))
+		);
+	}
 	return $_class_invlist_cache{$class} ||= do {
 		$have_prop_invlist= do { require Unicode::UCD; !!Unicode::UCD->can('prop_invlist') }
 			unless defined $have_prop_invlist;
@@ -804,11 +807,13 @@ Same as L</get_member> but returns a codepoint integer instead of a character.
 =cut
 
 sub get_member {
-	chr _get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
+	$_[0]{members}? $_[0]{members}[$_[1]]
+		: chr _get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
 }
 
 sub get_member_codepoint {
-	_get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
+	$_[0]{members}? ord $_[0]{members}[$_[1]]
+		: _get_invlist_element($_[1], $_[0]->member_invlist, $_[0]->_invlist_index);
 }
 
 sub _get_invlist_element {
@@ -881,15 +886,18 @@ L</max_codepoint> if defined.
 
 sub negate {
 	my $self= shift;
-	my @invlist= @{ $self->member_invlist };
+	my $neg= Mock::Data::Generator::Charset::Util::negate_invlist($self->member_invlist, $self->max_codepoint);
+	return $self->new(member_invlist => $neg);
+}
+sub Mock::Data::Generator::Charset::Util::negate_invlist {
+	my ($invlist, $max_codepoint)= @_;
 	# Toggle first char of 0
-	if ($invlist[0]) { unshift @invlist, 0 }
-	else { shift @invlist; }
+	$invlist= $invlist->[0]? [ 0, @$invlist ] : [ @{$invlist}[1..$#$invlist] ];
 	# If max_codepoint is defined, and was the final char, remove the range starting at max_codepoint+1
-	if (@invlist & 1 and defined $self->max_codepoint and $invlist[-1] == $self->max_codepoint+1) {
-		pop @invlist;
+	if (@$invlist & 1 and defined $max_codepoint and $invlist->[-1] == $max_codepoint+1) {
+		pop @$invlist;
 	}
-	return $self->new(member_invlist => \@invlist);
+	return $invlist;
 }
 
 =head2 union
@@ -908,7 +916,7 @@ sub union {
 	my @invlists= @_;
 	ref eq 'ARRAY' || ($_= $_->member_invlist)
 		for @invlists;
-	my $combined= Mock::Data::Generator::Util::merge_invlists(\@invlists, $self->max_codepoint);
+	my $combined= Mock::Data::Generator::Charset::Util::merge_invlists(\@invlists, $self->max_codepoint);
 	return $self->new(member_invlist => $combined);
 }
 
@@ -928,7 +936,7 @@ sub union {
 #
 #=cut
 
-sub Mock::Data::Generator::Util::merge_invlists {
+sub Mock::Data::Generator::Charset::Util::merge_invlists {
 	my @invlists= @{shift()};
 	my $max_codepoint= shift // 0x10FFFF;
 
@@ -936,12 +944,13 @@ sub Mock::Data::Generator::Util::merge_invlists {
 	return [@{$invlists[0]}] unless @invlists > 1;
 	my @combined= ();
 	# Repeatedly select the minimum range among the input lists and add it to the result
+	my @pos= (0)x@invlists;
 	while (@invlists) {
-		my ($min_ch, $min_i)= ($invlists[0][0], 0);
+		my ($min_ch, $min_i)= ($invlists[0][$pos[0]], 0);
 		# Find which inversion list contains the lowest range
 		for (my $i= 1; $i < @invlists; $i++) {
-			if ($invlists[$i][0] < $min_ch) {
-				$min_ch= $invlists[$i][0];
+			if ($invlists[$i][$pos[$i]] < $min_ch) {
+				$min_ch= $invlists[$i][$pos[$i]];
 				$min_i= $i;
 			}
 		}
@@ -949,23 +958,29 @@ sub Mock::Data::Generator::Util::merge_invlists {
 		# Check for overlap of this new inclusion range with the previous
 		if (@combined && $combined[-1] >= $min_ch) {
 			# they overlap, so just replace the end-codepoint of the range
-			pop @combined;
-			shift @{$invlists[$min_i]};
-			push @combined, shift @{$invlists[$min_i]};
+			# if the new endpoint is larger
+			my $new_end= $invlists[$min_i][$pos[$min_i]+1];
+			$combined[-1]= $new_end if !defined $new_end || $combined[-1] < $new_end;
 		}
 		else {
 			# else, simply append the range
-			push @combined, splice @{$invlists[$min_i]}, 0, 2;
-		}
-		# If this is the only list remaining, append the rest and done
-		if (@invlists == 1) {
-			push @combined, @{$invlists[$min_i]};
-			last;
+			push @combined, @{$invlists[$min_i]}[$pos[$min_i] .. $pos[$min_i]+1];
 		}
 		# If the list is empty now, remove it from consideration
-		splice @invlists, $min_i, 1 unless @{$invlists[$min_i]};
-		# If the invlist ends with an infinite range now, we are done
-		last if 1 & scalar @combined;
+		if (($pos[$min_i] += 2) >= @{$invlists[$min_i]}) {
+			splice @invlists, $min_i, 1;
+			splice @pos, $min_i, 1;
+			# If the invlist ends with an infinite range now, we are done
+			if (!defined $combined[-1]) {
+				pop @combined;
+				last;
+			}
+		}
+		# If this is the only list remaining, append the rest and done
+		elsif (@invlists == 1) {
+			push @combined, @{$invlists[0]}[$pos[0] .. $#{$invlists[0]}];
+			last;
+		}
 	}
 	while ($combined[-1] > $max_codepoint) {
 		pop @combined;

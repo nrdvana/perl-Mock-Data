@@ -89,6 +89,9 @@ subtest regex_generator => sub {
 		[ qr/(ab){3,}/, 1, 1 ],
 		[ qr/a/i, 1, 1 ],
 		[ qr/ab/i, 1, 1 ],
+		[ qr/[[:alpha:]\P{digit}]+/, 1, 1 ],
+		[ qr/[[:alpha:]\P{digit}]+/a, 1, 1 ],
+		[ qr/[\w\d]+/a, 1, 1 ],
 	);
 	my $mock= Mock::Data->new();
 	for (@tests) {
@@ -111,6 +114,30 @@ subtest regex_generator => sub {
 				my $str= $generator->($mock, { prefix => '_', suffix => '_' });
 				like( $str, $match, "with prefix/suffix (str=".escape_str($str).")" );
 			}
+		};
+	}
+};
+
+subtest codepoint_constraints => sub {
+	my @tests= (
+		[ qr/.{50}/ ],
+		[ qr/.{50}/a ],
+	);
+	my $mock= Mock::Data->new();
+	for (@tests) {
+		my ($regex)= @$_;
+		subtest "regex $regex" => sub {
+			my $generator= Mock::Data::Generator::Regex->new(
+				regex => $regex,
+				min_codepoint => 1,
+				max_codepoint => 0x7F,
+			);
+			my $str= $generator->generate($mock);
+			like( $str, qr/^[\x01-\x7F]+$/, 'codepoints within 1-0x7F' );
+			$str= $generator->generate($mock, { min_codepoint => 0x70 });
+			like( $str, qr/^[\x70-\x7F]+$/, 'codepoints within 0x70-0x7f' );
+			$str= $generator->generate($mock, { max_codepoint => 0x10 });
+			like( $str, qr/^[\x01-\x10]+$/, 'codepoints within 0x01-0x10' );
 		};
 	}
 };
