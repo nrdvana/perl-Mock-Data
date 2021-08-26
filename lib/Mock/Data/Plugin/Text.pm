@@ -4,7 +4,8 @@ use warnings;
 use Carp;
 use Scalar::Util 'blessed';
 use Mock::Data::Charset;
-use parent 'Exporter';
+require Exporter;
+our @ISA= ( 'Exporter' );
 our @EXPORT_OK= qw( word words lorem_ipsum join );
 
 # ABSTRACT: Mock::Data plugin that provides text-related generators

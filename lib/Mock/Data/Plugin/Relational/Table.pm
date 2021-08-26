@@ -3,7 +3,8 @@ use strict;
 use warnings;
 use Carp;
 use Mock::Data::Util 'coerce_generator';
-use parent 'Mock::Data::Generator';
+require Mock::Data::Generator;
+our @ISA= ( 'Mock::Data::Generator' );
 our @_clone_fields;
 
 # ABSTRACT: Object representing one defined schema table

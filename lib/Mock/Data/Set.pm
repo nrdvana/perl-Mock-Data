@@ -1,7 +1,8 @@
 package Mock::Data::Set;
 use strict;
 use warnings;
-use parent 'Mock::Data::Generator';
+require Mock::Data::Generator;
+our @ISA= ('Mock::Data::Generator');
 
 # ABSTRACT: Generator which returns one item from a set
 # VERSION

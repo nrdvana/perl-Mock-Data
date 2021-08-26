@@ -1,8 +1,9 @@
 package Mock::Data::Util;
 use strict;
 use warnings;
-use parent 'Exporter';
-use Carp;
+require Carp;
+require Exporter;
+our @ISA= ( 'Exporter' );
 our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
 	charset template
 );
@@ -143,24 +144,13 @@ Any object which has a C<compile> method is returned as-is.
 
 sub coerce_generator {
 	my ($spec)= @_;
-	if (!ref $spec) {
-		return Mock::Data::Template->new($spec);
-	}
-	elsif (ref $spec eq 'ARRAY') {
-		return Mock::Data::Set->new(items => $spec);
-	}
-	elsif (ref $spec eq 'HASH') {
-		return Mock::Data::Set->new_weighted(%$spec);
-	}
-	elsif (ref $spec eq 'CODE') {
-		return Mock::Data::SubWrapper->_new($spec);
-	}
-	elsif (ref($spec)->can('generate')) {
-		return $spec;
-	}
-	else {
-		Carp::croak("Don't know how to make '$spec' into a generator");
-	}
+	!ref $spec?              Mock::Data::Template->new($spec)
+	: ref $spec eq 'ARRAY'?  Mock::Data::Set->new(items => $spec)
+	: ref $spec eq 'HASH'?   Mock::Data::Set->new_weighted(%$spec)
+	: ref $spec eq 'CODE'?   Mock::Data::SubWrapper->_new($spec)
+	: ref($spec)->can('generate')? $spec
+	: ref $spec eq 'Regexp'? Mock::Data::Regex->new($spec)
+	: Carp::croak("Don't know how to make '$spec' into a generator");
 }
 
 =head2 mock_data_subclass

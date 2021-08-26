@@ -1,7 +1,6 @@
 package Mock::Data::Regex;
 use strict;
 use warnings;
-use parent 'Mock::Data::Generator';
 use Mock::Data::Charset;
 BEGIN {
 	*_parse_context= *Mock::Data::Charset::_parse_context;
@@ -12,6 +11,8 @@ require Scalar::Util;
 require List::Util;
 require Hash::Util;
 require Mock::Data::Util;
+require Mock::Data::Generator;
+our @ISA= ( 'Mock::Data::Generator' );
 
 =head1 CONSTRUCTOR
 
