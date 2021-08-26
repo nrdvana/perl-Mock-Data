@@ -155,7 +155,7 @@ sub new {
 sub _load_plugin {
 	my ($self, $name)= @_;
 	my @fail;
-	for ("Mock::Data::$name", $name) {
+	for ("Mock::Data::Plugin::$name", $name) {
 		unless ($_->can('apply_mockdata_plugin')) {
 			unless (eval { Module::Runtime::require_module($_) }) {
 				push @fail, "Can't load $_";

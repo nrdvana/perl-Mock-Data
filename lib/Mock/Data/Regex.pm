@@ -508,7 +508,6 @@ sub new {
 		$self->{pattern}{max_codepoint}= 0x7F if $self->{flags}{a};
 		$self->{pattern}= Mock::Data::Util::charset($self->{pattern});
 	}
-	main::diag "charset=".$self->{pattern}->notation;
 	bless $self, $class;
 }
 

@@ -53,7 +53,7 @@ for (@tests) {
 }
 
 {
-	package Mock::Data::MyPlugin;
+	package Mock::Data::Plugin::MyPlugin;
 	sub apply_mockdata_plugin {
 		my ($class, $mockdata)= @_;
 		$mockdata->add_generators(

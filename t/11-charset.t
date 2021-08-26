@@ -198,7 +198,7 @@ subtest get_member_find_member => sub {
 
 subtest lazy_attributes => sub {
 	my $charset= charset('[:alpha:]\P{digit}');
-	diag Data::Dumper::Dumper($charset->member_invlist);
+	note Data::Dumper::Dumper($charset->member_invlist);
 	ok( !$charset->find_member('0'), '"0" not in the set of alpha and non-digit' );
 	is( scalar $charset->find_member('a'), 87, 'member "a" found at 87' );
 	ok( defined $charset->{member_invlist} && defined $charset->{_invlist_index}, 'used invlist' );
