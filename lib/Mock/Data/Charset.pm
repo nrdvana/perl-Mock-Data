@@ -33,7 +33,8 @@ our @CARP_NOT= ('Mock::Data::Util');
   # Generate random strings
   my $str= $charset->generate($mockdata, 10); # 10 random chars from this charset
       ...= $charset->generate($mockdata, { min_codepoint => 1, max_codepoint => 127 }, 10);
-      ...= $charset->generate($mockdata, { min_size => 5, max_size => 10 });
+      ...= $charset->generate($mockdata, { size => [5,10] }); # between 5 and 10 chars
+      ...= $charset->generate($mockdata, { size => sub { 5 + int rand 5 }); # same
 
 =head1 DESCRIPTION
 
@@ -96,6 +97,8 @@ C<max_codepoint>, C<generator_opts>, C<member_invlist> (unless chars change).
 
 =cut
 
+our @generator_attrs= qw( str_len min_codepoint max_codepoint );
+
 sub new {
 	my $class= shift;
 	my (%self, %parse);
@@ -129,20 +132,13 @@ sub new {
 		delete $self{ranges};
 	}
 
-	# Look for attributes of generator_opts
-	for (qw( size min_size max_size min_codepoint )) {
-		$self{generator_opts}{$_}= delete $self{$_}
-			if defined $self{$_};
-	}
-
 	# If called on an object, carry over some settings
 	if (ref $class) {
 		if (!keys %parse && !defined $self{notation} && !$self{members} && !$self{member_invlist}) {
 			@self{'_parse','notation','members','member_invlist'}=
 				@{$class}{'_parse','notation','members','member_invlist'};
 		}
-		$self{generator_opts} ||= { %{ $class->{generator_opts} } };
-		$self{max_codepoint}  //= $class->{max_codepoint};
+		$self{$_} //= $class->{$_} for @generator_attrs;
 		$class= ref $class;
 	}
 
@@ -229,27 +225,17 @@ sub max_codepoint {
 	$_[0]{max_codepoint}
 }
 
-=head2 min_len
-
-Specify the lower limit for the random number of characters to return from L</generate>.
-
-=head2 max_len
-
-Specify the upper limit for the random number of characters to return from L</generate>.
-
 =head2 str_len
 
-This is a shortcut for setting both C<min_size> and C<max_size>.  Reading it will return
-C<undef> if C<min_size> and C<max_size> are not the same.
+This determines the length of string that will be returned from L<generate> if no length is
+specified to that function.  This may be a plain integer, an arrayref of C<< [$min,$max] >>,
+or a coderef that returns an integer: C<< sub { 5 + int rand 10 } >>.
 
 =cut
 
-sub min_len { $_[0]{min_len}= $_[1] if @_ > 1; $_[0]{min_len} // 1 }
-sub max_len { $_[0]{max_len}= $_[1] if @_ > 1; $_[0]{max_len} // 8 }
 sub str_len {
-	my ($self, $size)= @_;
-	$self->{min_len}= $self->{max_len}= $size if @_ > 1;
-	return $self->{min_len} == $self->{max_len}? $self->{min_len} : undef;
+	$_[0]{str_len}= $_[1] if @_ > 1;
+	$_[0]{str_len};
 }
 
 =head2 count
@@ -437,9 +423,13 @@ sub _parsed_charset_to_invlist {
 
 =head2 generate
 
+  $charset->generate($mockdata, $len);
+  $charset->generate($mockdata, \%options, $len);
+  $charset->generate($mockdata, \%options);
+
 Generate a string of characters from this charset.  The C<%options> may override the following
-attributes: L</min_codepoint>, L</max_codepoint> (but only smaller values), L</str_len>,
-L</min_len>, L</max_len>.
+attributes: L</min_codepoint>, L</max_codepoint> (but only smaller values), and L</str_len>.
+The default length is 1 character.
 
 =head2 compile
 
@@ -447,35 +437,63 @@ Return a plain coderef that invokes L</generate> on this object.
 
 =cut
 
+our $_compile;
+sub compile {
+	local $_compile= 1;
+	shift->generate(@_);
+}
 sub generate {
 	my ($self, $mock)= (shift, shift);
-	my %opts= ref $_[0] eq 'HASH'? %{ shift() } : ();
-	my $len= @_? shift : $opts{str_len} // $opts{len} // $opts{size};
-	unless (defined $len) {
-		my $min= $opts{min_len} // $self->min_len // 1;
-		my $max= $opts{max_len} // $self->max_len // 8;
-		$len= $min + int rand($max - $min + 1);
+	my ($len, $cp_min, $cp_max, $member_count)
+		= ($self->str_len, $self->min_codepoint, $self->max_codepoint, $self->count);
+	if (@_) {
+		my %opts= ref $_[0] eq 'HASH'? %{ shift() } : ();
+		$len= @_? shift : $opts{str_len} // $opts{len} // $opts{size}; # allow some aliases for length
+		$cp_min= $opts{min_codepoint} // $cp_min;
+		$cp_max= $opts{max_codepoint} // $cp_max;
 	}
-	my $cp_min= $opts{min_codepoint} // $self->min_codepoint;
-	my $cp_max= $opts{max_codepoint} // $self->max_codepoint;
-	my $count= $self->count;
-	my ($memb_min, $memb_span)= !defined $cp_min && !defined $cp_max? (0,$count)
+	my ($memb_min, $memb_span)= !defined $cp_min && !defined $cp_max? (0,$member_count)
 		: $self->_codepoint_minmax_to_member_range($cp_min, $cp_max);
 
-	my $ret= '';
+	# If compiling, $len will be a function, else it will be an integer
+	$len= !defined $len? ($_compile? sub { 1 } : 1 )
+		: !ref $len? ($_compile? sub { $len } : $len)
+		: ref $len eq 'ARRAY'? (
+			$_compile? sub { $len->[0] + int rand ($len->[1] - $len->[0]) }
+			: $len->[0] + int rand ($len->[1] - $len->[0])
+		)
+		: ref $len eq 'CODE'? ($_compile? $len : $len->($mock))
+		: Carp::croak("Unknown str_len specification '$len'");
+
 	# If member list is small-ish, use faster direct array access
-	if ($self->{members} || $count < 500) {
+	if ($self->{members} || $member_count < 500) {
 		my $members= $self->members;
-		$ret .= $members->[$memb_min + int rand $memb_span]
+		return sub {
+			return $self->generate(@_) if @_ > 1;
+			my $buf= '';
+			$buf .= $members->[$memb_min + int rand $memb_span]
+				for 1..$len->($_[0]);
+			return $buf;
+		} if $_compile;
+		my $buf= '';
+		$buf .= $members->[$memb_min + int rand $memb_span]
 			for 1..$len;
-	}
+		return $buf;
+	}		
 	else {
 		my $invlist= $self->member_invlist;
 		my $index= $self->_invlist_index;
-		$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
+		return sub {
+			return $self->generate(@_) if @_ > 1;
+			my $ret= '';
+			$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
+				for 1..$len->($_[0]);
+		} if $_compile;
+		my $buf= '';
+		$buf .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
 			for 1..$len;
+		return $buf;
 	}
-	return $ret;
 }
 
 sub _codepoint_minmax_to_member_range {
@@ -492,82 +510,6 @@ sub _codepoint_minmax_to_member_range {
 			defined $at? $at + 1 : $ins;
 		};
 	return ($memb_min, $memb_lim-$memb_min);
-}
-
-sub compile {
-	my $self= shift;
-	my $invlist= $self->member_invlist;
-	my $index= $self->_invlist_index;
-	my $default_len= $self->str_len;
-	my $default_min= $self->min_len;
-	my $default_max= $self->max_len;
-	my ($default_memb_min, $default_memb_span)=
-		$self->_codepoint_minmax_to_member_range($self->min_codepoint, $self->max_codepoint);
-
-	# If member list is small-ish, use faster direct array access
-	if ($self->{members} || $self->count < 500) {
-		my $members= $self->members;
-		return sub {
-			# my ($mockdata, \%options, $size)= @_;
-			my ($memb_min, $memb_span, $len)= ($default_memb_min, $default_memb_span);
-			if (@_ > 1) {
-				# If a new hashref of options is given, merge those with the defaults
-				if ($_[1] eq 'HASH') {
-					$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
-						// do {
-							my $min= $_[1]{min_len} // $default_min;
-							my $max= $_[1]{max_len} // $default_max;
-							$min + int rand($max - $min + 1);
-						};
-					($memb_min, $memb_span)= $self->_codepoint_minmax_to_member_range(
-						$_[1]{min_codepoint} // $self->min_codepoint,
-						$_[1]{max_codepoint} // $self->max_codepoint
-					) if defined $_[1]{min_codepoint} || defined $_[1]{max_codepoint};
-				# else a single scalar option is $size
-				} elsif (defined $_[1]) {
-					$len= $_[1];
-				}
-			} else {
-				$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
-			}
-			my $ret= '';
-			$ret .= $members->[$memb_min + int rand $memb_span]
-				for 1..$len;
-			return $ret;
-		};
-	}
-	else {
-		my $invlist= $self->member_invlist;
-		my $index= $self->_invlist_index;
-		return sub {
-			# my ($mockdata, \%options, $size)= @_;
-			my ($memb_min, $memb_span, $len)= ($default_memb_min, $default_memb_span);
-			if (@_ > 1) {
-				# If a new hashref of options is given, merge those with the defaults
-				if ($_[1] eq 'HASH') {
-					$len= $_[2] // $_[1]{str_len} // $_[1]{len} // $_[1]{size}
-						// do {
-							my $min= $_[1]{min_len} // $default_min;
-							my $max= $_[1]{max_len} // $default_max;
-							$min + int rand($max - $min + 1);
-						};
-					($memb_min, $memb_span)= $self->_codepoint_minmax_to_member_range(
-						$_[1]{min_codepoint} // $self->min_codepoint,
-						$_[1]{max_codepoint} // $self->max_codepoint
-					) if defined $_[1]{min_codepoint} || defined $_[1]{max_codepoint};
-				# else a single scalar option is $size
-				} elsif (defined $_[1]) {
-					$len= $_[1];
-				}
-			} else {
-				$len= $default_len // ($default_min + int rand($default_max - $default_min + 1));
-			}
-			my $ret= '';
-			$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
-				for 1..$len;
-			return $ret;
-		};
-	}
 }
 
 =head2 parse

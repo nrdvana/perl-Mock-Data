@@ -223,12 +223,20 @@ subtest charset_string => sub {
 	like( $str, qr/^[A-Z]+$/, '[A-Z], default size' );
 	$str= charset('a-z')->generate($mock, { len => 20 });
 	like( $str, qr/^[a-z]{20}$/, '[a-z] size=20' );
-	$str= charset('0-9')->generate($mock, { min_len => 30, max_len => 31 });
+	$str= charset('0-9')->generate($mock, { len => [30,31] });
 	like( $str, qr/^[0-9]{30,31}$/, '[0-9] size=[30..31]' );
 	$str= charset('0-9')->generate($mock, 1);
 	like( $str, qr/^[0-9]$/, '[0-9] size=1' );
 	$str= charset('0-9')->generate($mock, { max_codepoint => ord '0' }, 50);
 	like( $str, qr/^0+$/, '[0-9] max_codepoint => /0+/' );
+	my $len= 3;
+	my $ch= charset(notation => '0-9', str_len => sub { $len });
+	my $ch_cmp= $ch->compile;
+	like( $ch->generate($mock), qr/^[0-9]{3}$/, 'str_len function = 3' );
+	like( $ch_cmp->($mock), qr/^[0-9]{3}$/, 'str_len function = 3, compiled' );
+	$len= 5;
+	like( $ch->generate($mock), qr/^[0-9]{5}$/, 'str_len function = 5' );
+	like( $ch_cmp->($mock), qr/^[0-9]{5}$/, 'str_len function = 5, compiled' );
 };
 
 done_testing;
