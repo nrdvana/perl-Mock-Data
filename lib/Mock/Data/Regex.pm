@@ -8,6 +8,7 @@ BEGIN {
 	*_escape_str= *Mock::Data::Charset::_escape_str;
 }
 require Carp;
+require Scalar::Util;
 require List::Util;
 require Hash::Util;
 require Mock::Data::Util;
@@ -192,7 +193,7 @@ sub generate {
 	# A prefix can only be added if there was not a beginning-of-string assertion, or if
 	# it was a ^/m assertion (flagged as "LF")
 	if ($prefix && (!$out->start || $out->start eq 'LF')) {
-		my $p= Mock::Data::Util::coerce_generator($prefix)->();
+		my $p= Mock::Data::Util::coerce_generator($prefix)->generate($mockdata);
 		$p .= "\n" if $out->start;
 		$str= $p . $str;
 	}
@@ -200,7 +201,7 @@ sub generate {
 	# the next assertion allows "\n" and there is no assertion after that.
 	if ($suffix && (!$out->next_req || (grep $_ eq "\n", @{ $out->next_req }) && !$out->require->[1])) {
 		$str .= "\n" if $out->next_req;
-		$str .= Mock::Data::Util::coerce_generator($suffix)->();
+		$str .= Mock::Data::Util::coerce_generator($suffix)->generate($mockdata);
 	}
 	return $str;
 }
@@ -214,11 +215,23 @@ Return a generator coderef that calls L</generate> on this object.
 Parse a regular expression, returning a parse tree describing it.  This can be called as a
 class method.
 
+=head2 get_charset
+
+If the regular expression is nothing more than a charset (or repetition of one charset) this
+returns that charset.  If the regular expression is more complicated than a simple charset,
+this returns C<undef>.
+
 =cut
 
 sub parse {
 	my ($self, $regex)= @_;
 	return $self->_parse_regex({}) for "$regex";
+}
+
+sub get_charset {
+	my $self= shift;
+	my $p= $self->regex_parse_tree->pattern;
+	return Scalar::Util::blessed($p) && $p->isa('Mock::Data::Charset')? $p : undef;
 }
 
 our %_regex_syntax_unsupported= (
