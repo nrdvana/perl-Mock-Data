@@ -4,6 +4,9 @@ use warnings;
 use Carp ();
 our @CARP_NOT= ('Mock::Data::Util');
 
+# ABSTRACT: Generator of strings from a set of characters
+# VERSION
+
 =head1 SYNOPSIS
 
   # Export a handy alias for the constructor
@@ -44,6 +47,8 @@ codepoints, iterate the codepoints, and constrain the range of codepoints when g
 strings.
 
 =head1 CONSTRUCTOR
+
+=head2 new
 
   $charset= Mock::Data::Charset->new( %options );
   $charset= charset( %options );

@@ -14,7 +14,10 @@ require Mock::Data::Util;
 require Mock::Data::Generator;
 our @ISA= ( 'Mock::Data::Generator' );
 
-=head1 CONSTRUCTOR
+# ABSTRACT: Generator that uses a Regex as a template to generate strings
+# VERSION
+
+=head1 SYNOPSIS
 
   use Mock::Data;
   my $mockdata= Mock::Data->new(generators => { example => qr/(Example)*/ });
@@ -38,12 +41,18 @@ This generator creates strings that match a user-supplied regular expression.
 
 =head1 CONSTRUCTOR
 
+=head2 new
+
   my $gen= Mock::Data::Regex->new( $regex_ref );
-                                    ...->new( \%options );
-	                                ...->new( %options );
+                         ...->new( \%options );
+	                     ...->new( %options );
 
 The constructor can take a key/value list of attributes, hash of attributes,
 or a single argument which is assumed to be a regular expression.
+
+Any attribute may be supplied in C<%options>.  The regular expression must be provided, and
+it is parsed immediately to check whether it is supported by this module.  (this module lacks
+support for several regex features, such as lookaround assertions and backreferences)
 
 =cut
 

@@ -49,6 +49,8 @@ C<Mock::Data> ) or it can include parameters, both positional and named.
 
 =head1 CONSTRUCTOR
 
+=head2 new
+
   Mock::Data::Template->new($template);
 				   ...->new(template => $template);
 

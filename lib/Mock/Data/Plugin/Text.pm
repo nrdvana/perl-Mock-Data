@@ -103,8 +103,6 @@ heavily around 5 characters.
 This is an alias for C<< ->join({ source => '{word}', len => $max_len, max_len => $max_len }) >>.
 It takes the same options as L</join>.
 
-=back
-
 =cut
 
 our $word_generator= Mock::Data::Charset->new(
