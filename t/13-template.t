@@ -17,21 +17,21 @@ my @tests= (
 	[ '{x',                  '{x' ],
 	# Special template names that are just string escapes
 	[ '{}',                  '' ],
-	[ '{%20}',               ' ' ],
-	[ '{%7B}',               '{' ],
+	[ '{#20}',               ' ' ],
+	[ '{#7B}',               '{' ],
 	# nested templates
-	[ '{a {%7B}}',           'a{' ],
-	[ '{a x{%20}y}',         'ax y' ],
-	[ '{b x{%3D}=4}',        'b1' ],
-	[ '{b x={%3D}4}',        'b=4' ],
-	[ '{a {b x={%3D}}}',     'ab=' ],
+	[ '{a {#7B}}',           'a{' ],
+	[ '{a x{#20}y}',         'ax y' ],
+	[ '{b x{#3D}=4}',        'b1' ],
+	[ '{b x={#3D}4}',        'b=4' ],
+	[ '{a {b x={#3D}}}',     'ab=' ],
 );
 my $mockdata= MockRelData->new;
 for (@tests) {
 	my ($in, $out)= @$_;
 	my $tname= !ref $in? $in : ref $in eq 'ARRAY'? join(' ', '[', @$in, ']') : '\\'.$$in;
 	my $gen= inflate_template($in);
-	my $val= ref $gen? $gen->($mockdata, {}) : $gen;
+	my $val= ref $gen? $gen->generate($mockdata, {}) : $gen;
 	is( $val, $out, $tname );
 }
 

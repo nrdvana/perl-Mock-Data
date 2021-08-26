@@ -1,11 +1,10 @@
 package Mock::Data::Util;
 use strict;
 use warnings;
-require Exporter;
-require Carp;
-our @ISA= ( 'Exporter' );
+use parent 'Exporter';
+use Carp;
 our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
-	charset
+	charset template
 );
 
 # ABSTRACT: Exportable functions to assist with declaring mock data
@@ -70,24 +69,36 @@ sub charset {
 	return Mock::Data::Charset->new(@_);
 }
 
+=head2 template
+
+  $generator= template($template_string);
+
+Shortcut for calling L<Mock::Data::Template/new>.
+
 =head2 inflate_template
 
   my $str_or_generator= inflate_template( $string );
 
-This function takes a string and checks it for template substitutions.  If the string
-contains curly brace references, or things that might be mistaken for references, this will
-return a generator object.  If the string does not, this will return a plain string literal.
+This function takes a string and checks it for template substitutions, returning a
+L<Template|Mock::Data::Template> generator if it is a valid template, and returning the
+string otherwise.  It may also return a string if the template substitutions were just escape
+sequences for literal strings.  Don't call C<inflate_template> again on the output, because the
+escape sequences such as C<< "{#7B}" >> will have been replaced by a literal C<< "{" >>.
 
 =cut
 
+sub template {
+	Mock::data::Template->new(@_);
+}
+
 sub inflate_template {
-	my ($tpl, $flags)= @_;
-	# If it does not contain '{', return as-is.  Else parse (and probably cache)
+	my ($tpl)= @_;
+	# If it does not contain '{', return as-is.  Else parse.
 	return $tpl if index($tpl, '{') == -1;
-	my $cmp= _compile_template($tpl, $flags);
-	$cmp= Mock::Data::SubWrapper->_new($cmp, { template => $tpl })
-		if ref $cmp eq 'CODE';
-	return $cmp;
+	local $@;
+	my $cmp= eval { Mock::Data::Template->new($tpl) };
+	# If the template "compiled" to a simple scalar, return the scalar.  Else return the generator.
+	return !$cmp? $tpl : ref $cmp->{_compiled}? $cmp : $cmp->{_compiled};
 }
 
 =head2 coerce_generator
@@ -104,7 +115,7 @@ Returns a Generator that always returns the constant scalar.
 
 =item Scalar with "{"
 
-Returns a Generator that performs template substitution on the string.
+Returns a L<Mock::Data::Template> that performs template substitution on the string.
 
 =item ARRAY ref
 
@@ -118,6 +129,10 @@ Returns a L</weighted_set>.
 
 Returns the coderef, blessed as a generator.
 
+=item Regexp ref
+
+Returns a L<Mock::Data::Regex> generator.
+
 =item C<< $obj->can('compile' >>
 
 Any object which has a C<compile> method is returned as-is.
@@ -127,16 +142,9 @@ Any object which has a C<compile> method is returned as-is.
 =cut
 
 sub coerce_generator {
-	my ($spec, $flags)= @_;
+	my ($spec)= @_;
 	if (!ref $spec) {
-		my $gen= index($spec, '{') == -1? $spec : _compile_template($spec, $flags);
-		if (!ref $gen) {
-			return $gen if $flags && $flags->{or_scalar};
-			my $const= $gen;
-			$gen= sub () { $const };
-		}
-		$gen= Mock::Data::SubWrapper->_new($gen, { template => $spec });
-		return $gen;
+		return Mock::Data::Template->new($spec);
 	}
 	elsif (ref $spec eq 'ARRAY') {
 		return Mock::Data::Set->new(items => $spec);
@@ -147,136 +155,12 @@ sub coerce_generator {
 	elsif (ref $spec eq 'CODE') {
 		return Mock::Data::SubWrapper->_new($spec);
 	}
-	elsif (ref($spec)->can('compile')) {
+	elsif (ref($spec)->can('generate')) {
 		return $spec;
 	}
 	else {
 		Carp::croak("Don't know how to make '$spec' into a generator");
 	}
-}
-
-
-sub _compile_template {
-	my ($tpl, $flags)= @_;
-	# Split the template on each occurrence of "{...}" but respect nested {}
-	my @parts= split /(
-		\{                 # curly braces
-			(?:
-				(?> [^{}]+ )    # span of non-brace (no backtracking)
-				|
-				(?1)            # or recursive match of whole pattern
-			)*
-		\}
-		)/x, $tpl;
-	# Convert the odd-indexed elements (contents of {...}) into calls to generators
-	for (my $i= 1; $i < @parts; $i += 2) {
-		if ($parts[$i] eq '{}') {
-			$parts[$i]= '';
-		}
-		elsif ($parts[$i] =~ /^\{ % ([0-9A-Z]+) \} $/x) {
-			$parts[$i]= chr hex $1;
-		}
-		elsif ($parts[$i] =~ /^\{\w/) {
-			$parts[$i]= _compile_template_call(substr($parts[$i], 1, -1), $flags);
-		}
-		else {
-			Carp::croak "Invalid template notation '$parts[$i]'";
-		}
-	}
-	# Combine adjacent scalars in the list
-	@parts= grep ref || length, @parts;
-	for (my $i= $#parts - 1; $i >= 0; --$i) {
-		if (!ref $parts[$i] and !ref $parts[$i+1]) {
-			$parts[$i] .= splice(@parts, $i+1, 1);
-		}
-	}
-	return
-		# No parts? empty string.
-		!@parts? ''
-		# One part of plain scalar? return it.
-		: @parts == 1 && !ref $parts[0]? $parts[0]
-		# Error context requested?
-		: ($flags && $flags->{add_err_context})? sub {
-			my $ret;
-			local $@;
-			eval {
-				$ret= join '', map +(ref $_? $_->(@_) : $_), @parts;
-				1;
-			} or do {
-				$@ =~ s/$/ for template '$tpl'/m;
-				Carp::croak "$@";
-			};
-			$ret;
-		}
-		# One part which is already a generator?
-		: @parts == 1? $parts[0]
-		# Multiple parts get concatenated, while calling nested generators
-		: sub { join '', map +(ref $_? $_->(@_) : $_), @parts };
-}
-
-sub _compile_template_call {
-	my ($name_and_args, $flags)= @_;
-	my @args;
-	while ($name_and_args =~ /\G(
-		(?:
-			(?> [^{ ]+ )         # span of non-space non-lbrace (no backtrack)
-			|
-			(\{                  # or matched braces containing...
-				(?:
-					(?> [^{}]+ )    # span of non-brace (no backtrack)
-					|
-					(?2)            # or recursive match of matched braces
-				)*
-			\})
-		)+
-		) [ ]*                   # don't capture trailing space
-		/xgc
-	) {
-		push @args, $1
-	}
-	my $gen_name= shift @args;
-	my (@calls, @named_args, @list_args);
-	# Each argument could be a literal value, or a name=value pair, and the values could include templates
-	for (@args) {
-		# Argument is NAME=VALUE
-		if ($_ =~ /^([^{=]+)=(.*)/) {
-			push @named_args, $1, $2;
-			# Check if VALUE contains template substitutions
-			if (index($2, '{') >= 0) {
-				my $gen= _compile_template($2);
-				if (!ref $gen) {
-					$named_args[-1]= $gen;
-				} else {
-					my $i= $#named_args;
-					push @calls, sub { $named_args[$i]= $gen->(@_) };
-				}
-			}
-		} else {
-			push @list_args, $_;
-			# Check of VALUE contains template substitutions
-			if (index($_, '{') >= 0) {
-				my $gen= _compile_template($_);
-				if (!ref $gen) {
-					$list_args[-1]= $gen;
-				} else {
-					my $i= $#list_args;
-					push @calls, sub { $list_args[$i]= $gen->(@_) };
-				}
-			}
-		}
-	}
-	return sub {
-		# Run any nested templates that were part of the arguments to this template
-		# In most cases this will be an empty list.
-		$_->(@_) for @calls;
-		# $_[0] is $mockdata.   $_[1] is \%named_args from caller of generator.
-		$_[0]->call_generator(
-			$gen_name,
-			# The @args we parsed get added to the \%args passed to the function on each call
-			!@named_args? $_[1] : { %{$_[1]}, @named_args },
-			@list_args
-		);
-	};
 }
 
 =head2 mock_data_subclass
@@ -355,4 +239,6 @@ sub _name_for_combined_isa {
 # included last, because they depend on this module.
 require Mock::Data::Set;
 require Mock::Data::Charset;
+require Mock::Data::Regex;
+require Mock::Data::Template;
 require Mock::Data::SubWrapper;
