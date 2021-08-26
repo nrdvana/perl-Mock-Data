@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Generator::Regex;
+use Mock::Data::Regex;
 use Mock::Data;
 use Data::Dumper;
 sub explain { local $Data::Dumper::Useqq=1; Data::Dumper::Dumper(shift) }
@@ -39,7 +39,7 @@ sub is_assert {
 	};
 }
 
-*escape_str= *Mock::Data::Generator::Charset::_escape_str;
+*escape_str= *Mock::Data::Charset::_escape_str;
 
 subtest parse_regex => sub {
 	my @tests= (
@@ -64,7 +64,7 @@ subtest parse_regex => sub {
 	);
 	for (@tests) {
 		my ($regex, $expected)= @$_;
-		my $parse= Mock::Data::Generator::Regex->parse($regex);
+		my $parse= Mock::Data::Regex->parse($regex);
 		is( $parse, $expected, "regex $regex" )
 			or diag explain $parse;
 	}
@@ -97,7 +97,7 @@ subtest regex_generator => sub {
 	for (@tests) {
 		my ($regex, $can_prefix, $can_suffix)= @$_;
 		subtest "regex $regex" => sub {
-			my $generator= Mock::Data::Generator::Regex->new($regex);
+			my $generator= Mock::Data::Regex->new($regex);
 			my $str= $generator->generate($mock);
 			like( $str, $regex, "Str=".escape_str($str) )
 				or diag explain $generator->regex_parse_tree;
@@ -127,7 +127,7 @@ subtest codepoint_constraints => sub {
 	for (@tests) {
 		my ($regex)= @$_;
 		subtest "regex $regex" => sub {
-			my $generator= Mock::Data::Generator::Regex->new(
+			my $generator= Mock::Data::Regex->new(
 				regex => $regex,
 				min_codepoint => 1,
 				max_codepoint => 0x7F,

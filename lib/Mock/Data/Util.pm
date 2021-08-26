@@ -35,7 +35,7 @@ Nothing is exported by default.  The following functions are available:
   $generator= uniform_set( @items )
   $generator= uniform_set( \@items )
 
-Shortcut for L<Mock::Data::Generator::Set/new_uniform>.
+Shortcut for L<Mock::Data::Set/new_uniform>.
 Automatically calls L</inflate_template> when scalar items contain
 C<< "{...}" >>, and recursively wraps arrayrefs.
 
@@ -50,24 +50,24 @@ C<< "{...}" >>, and recursively wraps arrayrefs.
 =cut
 
 sub uniform_set {
-	return Mock::Data::Generator::Set->new_uniform(@_);
+	return Mock::Data::Set->new_uniform(@_);
 }
 
 sub weighted_set {
-	return Mock::Data::Generator::Set->new_weighted(@_);
+	return Mock::Data::Set->new_weighted(@_);
 }
 
 =head2 charset
 
   $generator= charset('A-Z');
 
-Shortcut for L<Mock::Data::Generator::Charset/new>, which takes a perl-regex-notation
+Shortcut for L<Mock::Data::Charset/new>, which takes a perl-regex-notation
 character set string, or list of attributes.
 
 =cut
 
 sub charset {
-	return Mock::Data::Generator::Charset->new(@_);
+	return Mock::Data::Charset->new(@_);
 }
 
 =head2 inflate_template
@@ -85,7 +85,7 @@ sub inflate_template {
 	# If it does not contain '{', return as-is.  Else parse (and probably cache)
 	return $tpl if index($tpl, '{') == -1;
 	my $cmp= _compile_template($tpl, $flags);
-	$cmp= Mock::Data::Generator::SubWrapper->_new($cmp, { template => $tpl })
+	$cmp= Mock::Data::SubWrapper->_new($cmp, { template => $tpl })
 		if ref $cmp eq 'CODE';
 	return $cmp;
 }
@@ -135,17 +135,17 @@ sub coerce_generator {
 			my $const= $gen;
 			$gen= sub () { $const };
 		}
-		$gen= Mock::Data::Generator::SubWrapper->_new($gen, { template => $spec });
+		$gen= Mock::Data::SubWrapper->_new($gen, { template => $spec });
 		return $gen;
 	}
 	elsif (ref $spec eq 'ARRAY') {
-		return Mock::Data::Generator::Set->new(items => $spec);
+		return Mock::Data::Set->new(items => $spec);
 	}
 	elsif (ref $spec eq 'HASH') {
-		return Mock::Data::Generator::Set->new_weighted(%$spec);
+		return Mock::Data::Set->new_weighted(%$spec);
 	}
 	elsif (ref $spec eq 'CODE') {
-		return Mock::Data::Generator::SubWrapper->_new($spec);
+		return Mock::Data::SubWrapper->_new($spec);
 	}
 	elsif (ref($spec)->can('compile')) {
 		return $spec;
@@ -353,6 +353,6 @@ sub _name_for_combined_isa {
 }
 
 # included last, because they depend on this module.
-require Mock::Data::Generator::Set;
-require Mock::Data::Generator::Charset;
-require Mock::Data::Generator::SubWrapper;
+require Mock::Data::Set;
+require Mock::Data::Charset;
+require Mock::Data::SubWrapper;

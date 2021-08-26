@@ -314,7 +314,7 @@ reference for each function.
 
 =item uniform_set(@items)
 
-Return a L<Mock::Data::Generator::Set|Generator> that selects from a set of values or other
+Return a L<Mock::Data::Set|Generator> that selects from a set of values or other
 generators.
 
 =item weighted_set($item => $weight, ...)

@@ -1,11 +1,11 @@
-package Mock::Data::Generator::Regex;
+package Mock::Data::Regex;
 use strict;
 use warnings;
 use parent 'Mock::Data::Generator';
-use Mock::Data::Generator::Charset;
+use Mock::Data::Charset;
 BEGIN {
-	*_parse_context= *Mock::Data::Generator::Charset::_parse_context;
-	*_escape_str= *Mock::Data::Generator::Charset::_escape_str;
+	*_parse_context= *Mock::Data::Charset::_parse_context;
+	*_escape_str= *Mock::Data::Charset::_escape_str;
 }
 require Carp;
 require List::Util;
@@ -20,9 +20,9 @@ require Mock::Data::Util;
   use Mock::Data 'coerce_generator';
   my $generator= coerce_generator( qr/(Example)*/ );
   
-  my $generator= Mock::Data::Generator::Regex->new( qr/(Example)*/ );
+  my $generator= Mock::Data::Regex->new( qr/(Example)*/ );
   
-  $generator= Mock::Data::Generator::Regex->new(
+  $generator= Mock::Data::Regex->new(
     regex => qr/(Example \w )*/,
     max_codepoint => 127,
   );
@@ -36,7 +36,7 @@ This generator creates strings that match a user-supplied regular expression.
 
 =head1 CONSTRUCTOR
 
-  my $gen= Mock::Data::Generator::Regex->new( $regex_ref );
+  my $gen= Mock::Data::Regex->new( $regex_ref );
                                     ...->new( \%options );
 	                                ...->new( %options );
 
@@ -226,7 +226,7 @@ our %_regex_syntax_unsupported= (
 	'\\' => { map { $_ => 1 } qw( B b A Z z G g K k ) },
 );
 our %_parse_regex_backslash= (
-	map +( $_ => $Mock::Data::Generator::Charset::_parse_charset_backslash{$_} ),
+	map +( $_ => $Mock::Data::Charset::_parse_charset_backslash{$_} ),
 		qw( a b c e f n N o r t x 0 1 2 3 4 5 6 7 8 9 )
 );
 sub _parse_regex {
@@ -266,7 +266,7 @@ sub _parse_regex {
 		elsif (/\G ( \[ | \\w | \\W | \\s | \\S | \\d | \\D | \\N | \\Z | \. | \^ | \$ ) /gcx) {
 			if ($1 eq '[') {
 				# parse function continues to operate on $_ at pos()
-				my $parse= Mock::Data::Generator::Charset::_parse_charset();
+				my $parse= Mock::Data::Charset::_parse_charset();
 				push @$expr, $self->_charset_node($parse, $flags);
 			}
 			elsif (ord $1 == ord '\\') {
@@ -353,27 +353,27 @@ sub _parse_regex {
 
 sub _node {
 	my ($self, $pattern, $flags)= @_;
-	Mock::Data::Generator::Regex::ParseNode->new({ pattern => $pattern, flags => $flags });
+	Mock::Data::Regex::ParseNode->new({ pattern => $pattern, flags => $flags });
 }
 sub _or_node {
 	my ($self, $or_list, $flags)= @_;
-	Mock::Data::Generator::Regex::ParseNode::Or->new({ pattern => $or_list, flags => $flags });
+	Mock::Data::Regex::ParseNode::Or->new({ pattern => $or_list, flags => $flags });
 }
 sub _charset_node {
 	my $self= shift;
 	my $flags= pop;
-	Mock::Data::Generator::Regex::ParseNode::Charset->new({
+	Mock::Data::Regex::ParseNode::Charset->new({
 		pattern => @_ > 1? { @_ } : shift,
 		flags => $flags
 	});
 }
 sub _assertion_node {
 	my $self= shift;
-	Mock::Data::Generator::Regex::ParseNode::Assertion->new({ @_ });
+	Mock::Data::Regex::ParseNode::Assertion->new({ @_ });
 }
 sub _str_builder {
 	my ($self, $mockdata, $opts)= @_;
-	Mock::Data::Generator::Regex::StrBuilder->new({
+	Mock::Data::Regex::StrBuilder->new({
 		mockdata => $mockdata,
 		generator => $self,
 		opts => $opts,
@@ -392,8 +392,8 @@ sub _fake_inc {
 # Other subclasses are used to handle OR-lists, charsets, and zero-width assertions.
 
 package # Do not index
-  Mock::Data::Generator::Regex::ParseNode;
-Mock::Data::Generator::Regex::_fake_inc();
+  Mock::Data::Regex::ParseNode;
+Mock::Data::Regex::_fake_inc();
 
 sub new { bless $_[1], $_[0] }
 
@@ -455,9 +455,9 @@ sub generate {
 # random, but then can backtrack if inner parse nodes were not able to match.
 
 package # Do not index
-  Mock::Data::Generator::Regex::ParseNode::Or;
-Mock::Data::Generator::Regex::_fake_inc();
-our @ISA= ('Mock::Data::Generator::Regex::ParseNode');
+  Mock::Data::Regex::ParseNode::Or;
+Mock::Data::Regex::_fake_inc();
+our @ISA= ('Mock::Data::Regex::ParseNode');
 
 sub generate {
 	my ($self, $out)= @_;
@@ -493,14 +493,14 @@ sub generate {
 }
 
 # -------------------------------- Regex Charset Parse Node ---------------------------
-# This node's ->pattern is an instance of Generator::Charset.  It returns one character
+# This node's ->pattern is an instance of Charset.  It returns one character
 # from the set, but also has an optimized handling of the ->repetition flag that generates
 # multiple characters at once.
 
 package # Do not index
-  Mock::Data::Generator::Regex::ParseNode::Charset;
-Mock::Data::Generator::Regex::_fake_inc();
-our @ISA= ('Mock::Data::Generator::Regex::ParseNode');
+  Mock::Data::Regex::ParseNode::Charset;
+Mock::Data::Regex::_fake_inc();
+our @ISA= ('Mock::Data::Regex::ParseNode');
 
 sub new {
 	my ($class, $self)= @_;
@@ -537,9 +537,9 @@ sub generate {
 # must occur around the current position.  Right now it only handles '^' and '$' and '\Z'
 
 package # Do not index
-  Mock::Data::Generator::Regex::ParseNode::Assertion;
-Mock::Data::Generator::Regex::_fake_inc();
-our @ISA= ('Mock::Data::Generator::Regex::ParseNode');
+  Mock::Data::Regex::ParseNode::Assertion;
+Mock::Data::Regex::_fake_inc();
+our @ISA= ('Mock::Data::Regex::ParseNode');
 
 sub start { $_[0]{start} }
 sub end { $_[0]{end} }
@@ -570,8 +570,8 @@ sub generate {
 # each time.
 
 package # Do not index
-  Mock::Data::Generator::Regex::StrBuilder;
-Mock::Data::Generator::Regex::_fake_inc();
+  Mock::Data::Regex::StrBuilder;
+Mock::Data::Regex::_fake_inc();
 
 sub new {
 	my ($class, $self)= @_;

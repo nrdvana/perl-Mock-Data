@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 use Test2::V0;
 use Mock::Data;
-use Mock::Data::Relational::Table;
+use Mock::Data::Plugin::Relational::Table;
 sub explain { require Data::Dumper; Data::Dumper::Dumper(@_); }
 
 =head1 DESCRIPTION
@@ -115,7 +115,7 @@ my $mockdata= Mock::Data->new;
 for my $spec (@tests) {
 	my @rowtests= @{ delete $spec->{row_tests} };
 	my $check= delete $spec->{check};
-	my $t= Mock::Data::Relational::Table->new($spec);
+	my $t= Mock::Data::Plugin::Relational::Table->new($spec);
 	subtest $spec->{name} => sub {
 		# Iterate the $name=>\%info pairs until end of list or until next table specification
 		while (@rowtests) {

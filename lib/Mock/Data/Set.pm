@@ -1,4 +1,4 @@
-package Mock::Data::Generator::Set;
+package Mock::Data::Set;
 use strict;
 use warnings;
 use parent 'Mock::Data::Generator';

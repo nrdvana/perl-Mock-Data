@@ -1,9 +1,9 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Generator::Charset;
+use Mock::Data::Charset;
 use Mock::Data;
 use Data::Dumper;
-sub charset { Mock::Data::Generator::Charset->new(@_) }
+sub charset { Mock::Data::Charset->new(@_) }
 
 subtest parse_charset => sub {
 	my @tests= (
@@ -61,7 +61,7 @@ subtest parse_charset => sub {
 	);
 	for (@tests) {
 		my ($spec, $expected)= @$_;
-		is( Mock::Data::Generator::Charset->parse($spec), $expected, '['.$spec.']' );
+		is( Mock::Data::Charset->parse($spec), $expected, '['.$spec.']' );
 	}
 };
 
@@ -85,7 +85,7 @@ subtest merge_invlists => sub {
 			=> [ 0 ],
 	);
 	while (my ($input, $output)= splice(@tests, 0, 2)) {
-		is( Mock::Data::Generator::Charset::Util::merge_invlists($input), $output );
+		is( Mock::Data::Charset::Util::merge_invlists($input), $output );
 	}
 };
 
@@ -149,7 +149,7 @@ subtest expand_invlist_members => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $members= Mock::Data::Generator::Charset::Util::expand_invlist($invlist);
+		my $members= Mock::Data::Charset::Util::expand_invlist($invlist);
 		is( $members, $expected, $name );
 	}
 };
@@ -163,7 +163,7 @@ subtest create_invlist_index => sub {
 	);
 	for (@tests) {
 		my ($name, $invlist, $expected)= @$_;
-		my $index= Mock::Data::Generator::Charset::Util::create_invlist_index($invlist);
+		my $index= Mock::Data::Charset::Util::create_invlist_index($invlist);
 		is( $index, $expected, $name );
 	}
 };

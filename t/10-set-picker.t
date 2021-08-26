@@ -7,7 +7,7 @@ BEGIN {
 		defined $rand? $rand * ( @_? $_[0] : 1 ) : CORE::rand(@_);
 	}
 }
-use Test2::V0 -target => 'Mock::Data::Generator::Set';
+use Test2::V0 -target => 'Mock::Data::Set';
 
 subtest constructors => \&test_constructors;
 subtest weighted_distribution => \&test_weighted_distribution;

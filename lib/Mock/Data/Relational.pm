@@ -2,7 +2,7 @@ package Mock::Data::Relational;
 use strict;
 use warnings;
 use Carp;
-use Mock::Data::Relational::Table;
+use Mock::Data::Plugin::Relational::Table;
 use Mock::Data qw/ mock_data_subclass /;
 
 # ABSTRACT: Mock::Data plugin that generates relational tables of data
@@ -131,7 +131,7 @@ sub apply_mockdata_plugin {
 		reldata => \&reldata,
 		auto_increment => \&auto_increment,
 	});
-	return mock_data_subclass($mockdata, 'Mock::Data::Relational::Methods');
+	return mock_data_subclass($mockdata, 'Mock::Data::Plugin::Relational::Methods');
 }
 
 =head1 GENERATORS
@@ -161,8 +161,8 @@ directly.
 =item C<fields>
 
 An arrayref or hashref of field or definitions.
-See L<Mock::Data::Relational::Table/fields> for a description of a field,
-or L<Mock::Data::Relational::Table/coerce_field> for the different shorthand
+See L<Mock::Data::Plugin::Relational::Table/fields> for a description of a field,
+or L<Mock::Data::Plugin::Relational::Table/coerce_field> for the different shorthand
 notations you can use.
 
 These elements may contain relationship shorthand notation, and will be automatically
@@ -171,15 +171,15 @@ sorted into that category.
 =item C<relationships>
 
 An arrayref or hashref of relationships to other tables.
-See L<Mock::Data::Relational::Table/relationships> for a description of a relationship,
-or L<Mock::Data::Relational::Table/coerce_relationship> for the different shorthand
+See L<Mock::Data::Plugin::Relational::Table/relationships> for a description of a relationship,
+or L<Mock::Data::Plugin::Relational::Table/coerce_relationship> for the different shorthand
 notations you can use.
 
 =item C<keys>
 
 An arrayref or hashref of keys which can be used to identify distinctness of rows.
-See L<Mock::Data::Relational::Table/keys> for a description of a key,
-or L<Mock::Data::Relational::Table/coerce_key> for the different shorthand
+See L<Mock::Data::Plugin::Relational::Table/keys> for a description of a key,
+or L<Mock::Data::Plugin::Relational::Table/coerce_key> for the different shorthand
 notations you can use.
 
 =item C<rows>
@@ -245,7 +245,7 @@ sub table {
 		my %tbl_ctor= %$named_args;
 		delete @tbl_ctor{qw/ rows count find via_relationship /};
 		$tbl_ctor{name} ||= 1; # not saving the table, just need to have any name
-		$table= Mock::Data::Relational::Table->new(%tbl_ctor);
+		$table= Mock::Data::Plugin::Relational::Table->new(%tbl_ctor);
 	}
 	elsif (defined $name) {
 		$table= $mockdata->generators->{'table_'.$name}
@@ -295,7 +295,7 @@ sub tables {
 
 This generator returns the next value in a sequence.  The sequence is maintained per-table,
 and a named argument of 'table' must be supplied, and it must be a
-L<Table generator|Mock::Data::Relational::Table>.  (The Table generator automatically passes
+L<Table generator|Mock::Data::Plugin::Relational::Table>.  (The Table generator automatically passes
 itself as this argument when calling auto_increment)
 
 =cut
@@ -317,11 +317,11 @@ will match the C<type> of the column, or an integer if the C<type> is not known.
 
 =item table
 
-An instance of L<Mock::Data::Relational::Table>
+An instance of L<Mock::Data::Plugin::Relational::Table>
 
 =item column
 
-A hashref of column info according to L<Mock::Data::Relational::Table/columns>.
+A hashref of column info according to L<Mock::Data::Plugin::Relational::Table/columns>.
 
 =item source
 
@@ -445,7 +445,7 @@ The following methods are added to the Mock::Data instance when using this plugi
 =cut
 
 # Methods are defined in this file
-@Mock::Data::Relational::Methods::ISA= ( 'Mock::Data' );
+@Mock::Data::Plugin::Relational::Methods::ISA= ( 'Mock::Data' );
 $INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
 
 =head2 declare_schema
@@ -459,7 +459,7 @@ $INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
 Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
 objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
 import a single table, a hashref is used as the direct constructor arguments for a
-L<Mock::Data::Relational::Table>, and a scalar followed by an array or hashref are considered
+L<Mock::Data::Plugin::Relational::Table>, and a scalar followed by an array or hashref are considered
 to be a table name and its column specification.
 
 The table name must be unique, unless you pass the option C<< replace => 1 >>; attempts to
@@ -467,7 +467,7 @@ define a table twice without that flag will throw an exception,
 
 =cut
 
-sub Mock::Data::Relational::Methods::declare_schema {
+sub Mock::Data::Plugin::Relational::Methods::declare_schema {
 	my $self= shift;
 	while (@_) {
 		my $thing= shift;
@@ -496,7 +496,7 @@ sub Mock::Data::Relational::Methods::declare_schema {
 		}
 		
 		my $replace= delete $ctor{replace};
-		my $table= Mock::Data::Relational::Table->new(\%ctor);
+		my $table= Mock::Data::Plugin::Relational::Table->new(\%ctor);
 		my $gen_name= 'table_'.$table->name;
 		croak "Table generator '$gen_name' was already defined"
 			if $self->generators->{$gen_name} && !$replace;
@@ -522,7 +522,7 @@ just want to add the C<mock> attribute to the existing columns.  This method doe
 
 =cut
 
-sub Mock::Data::Relational::Methods::set_column_mock {
+sub Mock::Data::Plugin::Relational::Methods::set_column_mock {
 	my $self= shift;
 	while (my ($table_name, $colmock)= splice @_, 0, 2) {
 		my $table= $self->tables->{$table_name} or croak "Table '$table_name' is not declared";

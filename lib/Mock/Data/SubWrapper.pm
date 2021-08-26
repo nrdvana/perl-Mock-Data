@@ -1,4 +1,4 @@
-package Mock::Data::Generator::SubWrapper;
+package Mock::Data::SubWrapper;
 use strict;
 use warnings;
 require Scalar::Util;

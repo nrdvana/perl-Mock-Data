@@ -1,4 +1,4 @@
-package Mock::Data::Relational::Table;
+package Mock::Data::Plugin::Relational::Table;
 use strict;
 use warnings;
 use Carp;

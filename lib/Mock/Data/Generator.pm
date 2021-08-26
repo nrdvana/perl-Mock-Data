@@ -62,8 +62,8 @@ This method allows for that custom behavior.
 =cut
 
 sub combine_generator {
-	return Mock::Data::Generator::Util::uniform_set(@_);
+	return Mock::Data::Util::uniform_set(@_);
 }
 
-require Mock::Data::Generator::Set;
+require Mock::Data::Set;
 1;

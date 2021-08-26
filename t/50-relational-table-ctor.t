@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Relational::Table;
+use Mock::Data::Plugin::Relational::Table;
 
 =head1 DESCRIPTION
 
@@ -93,7 +93,7 @@ my @tests= (
 
 for (@tests) {
 	my ($spec, $expected)= @$_;
-	my $t= Mock::Data::Relational::Table->new(@$spec);
+	my $t= Mock::Data::Plugin::Relational::Table->new(@$spec);
 	is( $t, $expected, $t->name );
 }
 

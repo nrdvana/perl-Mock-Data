@@ -1,4 +1,4 @@
-package Mock::Data::Generator::Charset;
+package Mock::Data::Charset;
 use strict;
 use warnings;
 use Carp ();
@@ -7,7 +7,7 @@ our @CARP_NOT= ('Mock::Data::Util');
 =head1 SYNOPSIS
 
   # Export a handy alias for the constructor
-  use Mock::Data::Generator::Charset 'charset';
+  use Mock::Data::Charset 'charset';
   
   # Use perl's regex notation for [] charsets
   my $charset = charset('A-Za-z');
@@ -38,13 +38,13 @@ our @CARP_NOT= ('Mock::Data::Util');
 =head1 DESCRIPTION
 
 This generator is optimized for holding sets of Unicode characters.  It behaves just like
-the L<Mock::Data::Generator::Set|Set> generator but it also lets you inspect the member
+the L<Mock::Data::Set|Set> generator but it also lets you inspect the member
 codepoints, iterate the codepoints, and constrain the range of codepoints when generating
 strings.
 
 =head1 CONSTRUCTOR
 
-  $charset= Mock::Data::Generator::Charset->new( %options );
+  $charset= Mock::Data::Charset->new( %options );
   $charset= charset( %options );
   $charset= charset( $notation );
 
@@ -292,7 +292,7 @@ sub _build_members {
 	return \@members;
 }
 
-sub Mock::Data::Generator::Charset::Util::expand_invlist {
+sub Mock::Data::Charset::Util::expand_invlist {
 	my $invlist= shift;
 	my @members;
 	if (@$invlist > 1) {
@@ -308,10 +308,10 @@ sub Mock::Data::Generator::Charset::Util::expand_invlist {
 # The index is private because there's not a good way to explain it to the user
 sub _invlist_index {
 	my $self= shift;
-	$self->{_invlist_index} ||= Mock::Data::Generator::Charset::Util::create_invlist_index($self->member_invlist);
+	$self->{_invlist_index} ||= Mock::Data::Charset::Util::create_invlist_index($self->member_invlist);
 }
 
-sub Mock::Data::Generator::Charset::Util::create_invlist_index {
+sub Mock::Data::Charset::Util::create_invlist_index {
 	my $invlist= shift;
 	my $n_spans= (@$invlist + 1) >> 1;
 	my @index;
@@ -424,7 +424,7 @@ sub _parsed_charset_to_invlist {
 		push @invlists, _class_invlist($_)
 			for @{ $parse->{classes} };
 	}
-	my $invlist= Mock::Data::Generator::Charset::Util::merge_invlists(\@invlists, $max_codepoint);
+	my $invlist= Mock::Data::Charset::Util::merge_invlists(\@invlists, $max_codepoint);
 	# Perform negation of inversion list by either starting at char 0 or removing char 0
 	if ($parse->{negate}) {
 		if ($invlist->[0]) { unshift @$invlist, 0 }
@@ -572,7 +572,7 @@ sub compile {
 
 =head2 parse
 
-  my $parse_info= Mock::Data::Generator::Charset->parse('\dA-Z_');
+  my $parse_info= Mock::Data::Charset->parse('\dA-Z_');
   # {
   #   codepoints        => [ ord '_' ],
   #   codepoint_ranges  => [ ord "A", ord "Z" ],
@@ -656,7 +656,7 @@ our %_class_invlist_cache= (
 sub _class_invlist {
 	my $class= shift;
 	if (ord $class == ord '^') {
-		return Mock::Data::Generator::Charset::Util::negate_invlist(
+		return Mock::Data::Charset::Util::negate_invlist(
 			_class_invlist(substr($class,1))
 		);
 	}
@@ -886,10 +886,10 @@ L</max_codepoint> if defined.
 
 sub negate {
 	my $self= shift;
-	my $neg= Mock::Data::Generator::Charset::Util::negate_invlist($self->member_invlist, $self->max_codepoint);
+	my $neg= Mock::Data::Charset::Util::negate_invlist($self->member_invlist, $self->max_codepoint);
 	return $self->new(member_invlist => $neg);
 }
-sub Mock::Data::Generator::Charset::Util::negate_invlist {
+sub Mock::Data::Charset::Util::negate_invlist {
 	my ($invlist, $max_codepoint)= @_;
 	# Toggle first char of 0
 	$invlist= $invlist->[0]? [ 0, @$invlist ] : [ @{$invlist}[1..$#$invlist] ];
@@ -916,7 +916,7 @@ sub union {
 	my @invlists= @_;
 	ref eq 'ARRAY' || ($_= $_->member_invlist)
 		for @invlists;
-	my $combined= Mock::Data::Generator::Charset::Util::merge_invlists(\@invlists, $self->max_codepoint);
+	my $combined= Mock::Data::Charset::Util::merge_invlists(\@invlists, $self->max_codepoint);
 	return $self->new(member_invlist => $combined);
 }
 
@@ -936,7 +936,7 @@ sub union {
 #
 #=cut
 
-sub Mock::Data::Generator::Charset::Util::merge_invlists {
+sub Mock::Data::Charset::Util::merge_invlists {
 	my @invlists= @{shift()};
 	my $max_codepoint= shift // 0x10FFFF;
 
