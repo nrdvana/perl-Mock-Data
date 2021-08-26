@@ -4,6 +4,7 @@ use warnings;
 use Carp;
 use Scalar::Util 'blessed';
 use Mock::Data::Charset;
+use Mock::Data::Util 'coerce_generator';
 require Exporter;
 our @ISA= ( 'Exporter' );
 our @EXPORT_OK= qw( word words lorem_ipsum join );
@@ -33,14 +34,10 @@ multiple languages in the future.
 
 sub apply_mockdata_plugin {
 	my ($class, $mockdata)= @_;
-	$mockdata->merge_generators(
-		join => \&join,
-		'Text::join' => \&join,
-		word => \&word,
-		'Text::word' => \&word,
-		words => \&words,
-		'Text::words' => \&words,
-		lorem_ipsum => \&lorem_ipsum,
+	$mockdata->add_generators(
+		'Text::join'        => \&join,
+		'Text::word'        => \&word,
+		'Text::words'       => \&words,
 		'Text::lorem_ipsum' => \&lorem_ipsum,
 	);
 }
@@ -66,6 +63,8 @@ The separator; defaults to a space.
 =item source
 
 One or more generators.  They will be coerced to generators if they are not already.
+If this is an arrayref, it will be considered as a list of generators and I<not> coerced into
+a L<Mock::Data::Set>.
 
 =item count
 
@@ -85,8 +84,30 @@ final separator will be removed if the string would otherwise end with a separat
 =cut
 
 sub join {
+	my $mockdata= shift;
+	my $opts= @_ && ref $_[0] eq 'HASH'? shift : undef;
+	my $sep= $_[0] // ($opts && $opts->{sep}) // ' ';
+	my $source= $_[1] // ($opts && $opts->{source}) // Carp::croak("Parameter 'source' is required");
+	my $count= $_[2] // ($opts && $opts->{count}) // 1;
+	my $len= $opts? $opts->{len} : undef;
+	my $max_len= $opts? $opts->{max_len} : undef;
 	
-	...
+	my @source_generators= map coerce_generator($_), ref $source eq 'ARRAY'? @$source : ( $source );
+	my $buf= $source_generators[0]->generate($mockdata);
+	my $src_i= 1;
+	if (defined $len) {
+		while (length($buf) < $len && (!defined $max_len or length($buf) + length($sep) < $max_len)) {
+			$buf .= $sep . $source_generators[$src_i++ % scalar @source_generators]->generate($mockdata);
+		}
+	} else {
+		my $lim= $count * scalar @source_generators;
+		while ($src_i < $lim && (!defined $max_len or length($buf) + length($sep) < $max_len)) {
+			$buf .= $sep . $source_generators[$src_i++ % scalar @source_generators]->generate($mockdata);
+		}
+	}
+	substr($buf, $max_len)= ''
+		if defined $max_len && length($buf) > $max_len;
+	return $buf;
 }
 
 =head2 word
@@ -101,7 +122,8 @@ heavily around 5 characters.
   $mockdata->words($max_len);
 
 This is an alias for C<< ->join({ source => '{word}', len => $max_len, max_len => $max_len }) >>.
-It takes the same options as L</join>.
+It takes the same named options as L</join>, but if a positional parameter if given, it
+specifies C<$len> and C<$max_len>.
 
 =cut
 
@@ -114,10 +136,12 @@ our $word_generator= Mock::Data::Charset->new(
 sub words {
 	my $mockdata= shift;
 	my %opts= @_ && ref $_[0] eq 'HASH'? %{ shift() } : ();
-	$opts{len}= $opts{max_len}= shift if @_;
+	if (@_) {
+		@opts{'len','max_len'}= ref $_[0] eq 'ARRAY'? @{$_[0]} : @_[0,0];
+	}
 	$opts{source} //= $mockdata->generators->{word};
 
-	$mockdata->generators->{join}->($mockdata, \%opts);
+	$mockdata->call_generator('join', \%opts);
 }
 
 =head2 lorem_ipsum
