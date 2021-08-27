@@ -231,7 +231,7 @@ sub _compile_template_call {
 		# In most cases this will be an empty list.
 		$_->(@_) for @calls;
 		# $_[0] is $mockdata.   $_[1] is \%named_args from caller of generator.
-		$_[0]->call_generator(
+		$_[0]->call(
 			$gen_name,
 			# The @args we parsed get added to the \%args passed to the function on each call
 			!@named_args? $_[1] : { %{$_[1]}, @named_args },

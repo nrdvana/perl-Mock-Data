@@ -18,7 +18,7 @@ plan scalar @tests;
 	sub generators {
 		return { a => sub { 'a_val' } }
 	}
-	sub call_generator {
+	sub call {
 		$_[0]->generators->{$_[1]}->(@_[2..$#_]);
 	}
 }

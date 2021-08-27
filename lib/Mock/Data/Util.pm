@@ -89,7 +89,7 @@ escape sequences such as C<< "{#7B}" >> will have been replaced by a literal C<<
 =cut
 
 sub template {
-	Mock::data::Template->new(@_);
+	Mock::Data::Template->new(@_);
 }
 
 sub inflate_template {
@@ -163,7 +163,7 @@ from the original and all packages in the list.  If called on an instance, it al
 re-blesses the instance to the new class.  All redundant items are removed from the
 combined list. (such as where one of the classes already inherits from one of the others).
 
-This does *not* check if $package_name is loaded.  That is the caller's responsibility.
+This does I<not> check if C<$package_name> is loaded.  That is the caller's responsibility.
 
 =cut
 
@@ -183,7 +183,7 @@ sub mock_data_subclass {
 		@new_isa= grep !$next_class->isa($_), @new_isa;
 		push @new_isa, $next_class;
 	}
-	# If only one class remains, this this one class already defined an inheritance for all
+	# If only one class remains, then this one class already defined an inheritance for all
 	# the others.  Use it directly.
 	my $new_class;
 	if (@new_isa == 1) {

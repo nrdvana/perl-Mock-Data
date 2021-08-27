@@ -141,7 +141,7 @@ sub words {
 	}
 	$opts{source} //= $mockdata->generators->{word};
 
-	$mockdata->call_generator('join', \%opts);
+	$mockdata->call('join', \%opts);
 }
 
 =head2 lorem_ipsum

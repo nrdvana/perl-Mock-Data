@@ -158,4 +158,37 @@ sub _maybe_compile {
 	: Carp::croak("Don't know how to compile '$spec'");
 }
 
+=head2 combine_generator
+
+  my $merged= $self->combine_generator($peer);
+
+If the C<$peer> is an instance of C<Mock::Data::Set>, this will take the items and weights
+of the peer, combine with the items and weights of the current object, and create a new set.
+
+=cut
+
+sub combine_generator {
+	my ($self, $peer)= @_;
+	my @items= @{$self->items};
+	my $weights= $self->weights;
+	if ($peer->isa('Mock::Data::Set')) {
+		my $peer_items= $peer->items;
+		my $peer_weights= $peer->weights;
+		if ($weights || $peer_weights) {
+			$weights= [
+				$weights?      @$weights      : (map 1, @items),
+				$peer_weights? @$peer_weights : (map 1, @$peer_items),
+			];
+		}
+		push @items, @$peer_items;
+	} else {
+		push @items, $peer;
+		$weights= $weights && @$weights? [ @$weights, List::Util::sum0(@$weights)/@$weights ] : undef;
+	}
+	return Mock::Data::Set->new(
+		items => \@items,
+		weights => $weights,
+	);
+}
+
 require Mock::Data::Util;

@@ -1,4 +1,6 @@
 package Mock::Data::GeneratorSub;
+use strict;
+use warnings;
 require Mock::Data::Generator;
 our @ISA= ( 'Mock::Data::Generator' );
 
@@ -50,7 +52,8 @@ sub compile {
 }
 
 sub generate {
-	shift->(@_);
+	my $self= shift;
+	$self->(@_);
 }
 
 1;

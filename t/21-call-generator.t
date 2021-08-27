@@ -51,7 +51,7 @@ for my $t (@tests) {
 	%gen_ret= %{ $t->{gen_ret} }; # store the values that generators will return
 	%gen_args= ();                # clear previous results
 	subtest $name => sub {
-		is( $mockdata->call_generator(@{ $t->{call} }), $t->{output}, 'output' );
+		is( $mockdata->call(@{ $t->{call} }), $t->{output}, 'output' );
 		is( \%gen_args, $t->{gen_args}, 'generator arguments' );
 	};
 }

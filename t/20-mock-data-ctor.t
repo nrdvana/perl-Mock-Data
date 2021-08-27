@@ -7,42 +7,59 @@ my @tests= (
 		name => 'Plain set of generators',
 		args => [ generators => { a => [42] } ],
 		check => object {
-			call generators => { a => [42] };
+			call generators => {
+				a => object { call items => [42]; }
+			};
 		}
 	},
 	{
 		name => 'Relative package name plugin',
 		args => [['MyPlugin']],
 		check => object {
-			call generators => { a => [40] };
+			call generators => {
+				a => object { call items => [40]; }
+			};
 		}
 	},
 	{
-		name => 'Abs package name plugin',
-		args => [ with => ['My::Plugin2'] ],
+		name => 'Scoped package name plugin',
+		args => [ plugins => ['My::Plugin2'] ],
 		check => object {
-			call generators => { 'My::Plugin2::a' => [60], a => [60] };
+			call generators => {
+				'My::Plugin2::a' => object { call items => [60]; },
+				a => object { call items => [60]; },
+			};
 		}
 	},
 	{
 		name => 'Plugin and literal generator override',
-		args => [ with => ['My::Plugin2'], generators => { a => [22], b => [55] } ],
+		args => [ plugins => ['My::Plugin2'], generators => { a => [22], b => [55] } ],
 		check => object {
-			call generators => { 'My::Plugin2::a' => [60], a => [22], b => [55] };
+			call generators => {
+				'My::Plugin2::a' => object { call items => [60]; },
+				a => object { call items => [22]; },
+				b => object { call items => [55]; },
+			};
 		}
 	},
 	{
 		name => 'Plugin merge',
 		args => [[qw/ MyPlugin My::Plugin2 /]],
 		check => object {
-			call generators => { 'My::Plugin2::a' => [60], a => [40,60] };
+			call generators => {
+				'My::Plugin2::a' => object { call items => [60]; },
+				a => object { call items => [40,60]; },
+			};
 		}
 	},
 	{
-		name => 'Plugin no mrge in reverse order',
+		name => 'Plugin no merge in reverse order',
 		args => [[qw/ My::Plugin2 MyPlugin /]],
 		check => object {
-			call generators => { 'My::Plugin2::a' => [60], a => [40] };
+			call generators => {
+				'My::Plugin2::a' => object { call items => [60]; },
+				a => object { call items => [40]; },
+			};
 		}
 	}
 );
@@ -71,10 +88,10 @@ for (@tests) {
 	}
 }
 {
-	package My::Plugin2;
+	package Mock::Data::Plugin::My::Plugin2;
 	sub apply_mockdata_plugin {
 		my ($class, $mockdata)= @_;
-		$mockdata->merge_generators(
+		$mockdata->combine_generators(
 			'My::Plugin2::a' => [ 60 ],
 		);
 	}

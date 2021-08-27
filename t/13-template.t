@@ -48,7 +48,7 @@ for (@tests) {
 		);
 	}
 	sub generators { \%generators }
-	sub call_generator {
+	sub call {
 		my $self= shift;
 		my $name= shift;
 		$generators{$name}->($self, @_);

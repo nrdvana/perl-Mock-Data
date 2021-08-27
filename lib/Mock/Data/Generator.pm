@@ -74,8 +74,11 @@ This method allows for that custom behavior.
 
 =cut
 
+our $_try_reverse;
 sub combine_generator {
-	return Mock::Data::Set->new_uniform(@_);
+	return Mock::Data::Set->new_uniform($_[1], $_[0]) if $_try_reverse;
+	local $_try_reverse= 1;
+	return $_[1]->combine_generator($_[0]);
 }
 
 =head2 clone
