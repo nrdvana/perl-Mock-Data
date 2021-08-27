@@ -147,7 +147,7 @@ sub coerce_generator {
 	!ref $spec?              Mock::Data::Template->new($spec)
 	: ref $spec eq 'ARRAY'?  Mock::Data::Set->new(items => $spec)
 	: ref $spec eq 'HASH'?   Mock::Data::Set->new_weighted(%$spec)
-	: ref $spec eq 'CODE'?   Mock::Data::SubWrapper->_new($spec)
+	: ref $spec eq 'CODE'?   Mock::Data::GeneratorSub->new($spec)
 	: ref($spec)->can('generate')? $spec
 	: ref $spec eq 'Regexp'? Mock::Data::Regex->new($spec)
 	: Carp::croak("Don't know how to make '$spec' into a generator");
@@ -231,4 +231,4 @@ require Mock::Data::Set;
 require Mock::Data::Charset;
 require Mock::Data::Regex;
 require Mock::Data::Template;
-require Mock::Data::SubWrapper;
+require Mock::Data::GeneratorSub;

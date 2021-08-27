@@ -13,7 +13,7 @@ our @ISA= ('Mock::Data::Generator');
   $gen= uniform_set( 'a', 'b', 'c', 'd' )->compile;
   $value= $gen->($mockdata);   # 25% chance of each of the items
   
-  $gen= weighted_set( 1 => 'a', 9 => 'b' )->compile;
+  $gen= weighted_set( a => 1, b => 9 )->compile;
   $value= $gen->($mockdata);   # 10% chance of 'a', 90% chance of 'b'
   
   $gen= uniform_set( 'a', [ 'b', 'c' ] )->compile;
