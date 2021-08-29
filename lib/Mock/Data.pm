@@ -362,7 +362,7 @@ sub wrap {
 our $AUTOLOAD;
 sub AUTOLOAD {
 	my $self= shift;
-	Carp::croak "No method $AUTOLOAD in package $self" unless ref $self;
+	Carp::croak("No method $AUTOLOAD in package $self") unless ref $self;
 	my $name= substr($AUTOLOAD, rindex($AUTOLOAD,':')+1);
 	$self->call($name, @_);
 	# don't install, because generators are defined per-instance not per-package

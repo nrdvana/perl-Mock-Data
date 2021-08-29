@@ -642,6 +642,7 @@ sub _parse_charset_classname {
 	undef
 }
 sub _parse_charset {
+	my $flags= shift;
 	# argument is in $_, starting from pos($_)
 	my %parse;
 	my @range;
@@ -675,6 +676,9 @@ sub _parse_charset {
 			else {
 				last; # $1 eq ']';
 			}
+		}
+		elsif ($flags && ($flags->{x}||0) >= 2 && /\G[ \t]/gc) {
+			next; # ignore space and tab under /xx
 		}
 		else {
 			/\G(.)/gc or die "Unexpected end of input";

@@ -19,21 +19,23 @@ our @ISA= ( 'Mock::Data::Generator' );
 
 =head1 SYNOPSIS
 
-  use Mock::Data;
-  my $mockdata= Mock::Data->new(generators => { example => qr/(Example)*/ });
-
-  use Mock::Data 'coerce_generator';
-  my $generator= coerce_generator( qr/(Example)*/ );
+  # Automatically used when you give a Regexp ref to Mock::Data
+  my $mock= Mock::Data->new(generators => { word => qr/\w+/ });
   
-  my $generator= Mock::Data::Regex->new( qr/(Example)*/ );
+  # or use stand-alone
+  my $email= Mock::Data::Regex->new( qr/ [-a-z]+\d{0,2} @ [a-z]{2,20} \. (com|net|org) /xa );
+  say $email->generate;  # o25@nskwprtpqlqbeg.org
   
-  $generator= Mock::Data::Regex->new(
-    regex => qr/(Example \w )*/,
-    max_codepoint => 127,
-  );
+  # define attributes, or override them on demand
+  say Mock::Data::Regex->new($regex)->generate($mock, { max_repetition => 50 });
+  say Mock::Data::Regex->new(regex => $regex, max_repetition => 50)->generate($mock);
   
-  $generator->generate();
-  $generator->generate({ min_codepoint => 32, context => 'random' });
+  # constrain the characters selected
+  my $any= Mock::Data::Regex->new(qr/.+/);
+  say $any->generate($mock, { min_codepoint => 0x20, max_codepoint => 0xFFFF });
+  
+  # surround generated regex-match with un-matched prefix/suffix
+  say $email->generate($mock, { prefix => q{<a href="mailto:}, suffix => q{">Contact</a>} });
 
 =head1 DESCRIPTION
 
@@ -45,7 +47,7 @@ This generator creates strings that match a user-supplied regular expression.
 
   my $gen= Mock::Data::Regex->new( $regex_ref );
                          ...->new( \%options );
-	                     ...->new( %options );
+                         ...->new( %options );
 
 The constructor can take a key/value list of attributes, hash of attributes,
 or a single argument which is assumed to be a regular expression.
@@ -264,9 +266,11 @@ sub _parse_regex {
 			if (defined $1) {
 				# leading question mark means regex flags.  This only supports the ^...: one:
 				/\G \^ ( \w* )? : /gcx
-					or die "Unsupported regex feature '(?".substr($_,pos,1)."'";
-				$sub_flags= { map +( $_ => 1 ), split '', $1 }
-					if defined $1;
+					or Carp::croak("Unsupported regex feature '(?".substr($_,pos,1)."'");
+				if (defined $1) {
+					$sub_flags= {};
+					++$sub_flags->{$_} for split '', $1;
+				}
 			}
 			my $pos= pos;
 			push @$expr, $self->_parse_regex($sub_flags);
@@ -289,7 +293,7 @@ sub _parse_regex {
 		elsif (/\G ( \[ | \\w | \\W | \\s | \\S | \\d | \\D | \\N | \\Z | \. | \^ | \$ ) /gcx) {
 			if ($1 eq '[') {
 				# parse function continues to operate on $_ at pos()
-				my $parse= Mock::Data::Charset::_parse_charset();
+				my $parse= Mock::Data::Charset::_parse_charset($flags);
 				push @$expr, $self->_charset_node($parse, $flags);
 			}
 			elsif (ord $1 == ord '\\') {
@@ -342,6 +346,9 @@ sub _parse_regex {
 				}
 			}
 			$expr->[-1]->repetition(\@rep)
+		}
+		elsif ($flags->{x} && /\G ( \s | [#].* ) /gcx) {
+			# ignore whitespace and comments under /x mode
 		}
 		elsif (/\G (\\)? (.) /gcxs) {
 			# Tell users about unsupported features
