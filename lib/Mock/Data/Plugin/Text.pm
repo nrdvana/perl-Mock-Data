@@ -2,11 +2,12 @@ package Mock::Data::Plugin::Text;
 use strict;
 use warnings;
 use Carp;
+our @CARP_NOT= qw( Mock::Data Mock::Data::Util );
 use Scalar::Util 'blessed';
 use Mock::Data::Charset;
 use Mock::Data::Util 'coerce_generator';
 require Exporter;
-our @ISA= ( 'Exporter' );
+our @ISA= qw( Exporter );
 our @EXPORT_OK= qw( word words lorem_ipsum join );
 
 # ABSTRACT: Mock::Data plugin that provides text-related generators
@@ -32,11 +33,12 @@ multiple languages in the future.
 
 =cut
 
+our $word_generator;
 sub apply_mockdata_plugin {
 	my ($class, $mockdata)= @_;
 	$mockdata->add_generators(
 		'Text::join'        => \&join,
-		'Text::word'        => \&word,
+		'Text::word'        => $word_generator,
 		'Text::words'       => \&words,
 		'Text::lorem_ipsum' => \&lorem_ipsum,
 	);
@@ -64,7 +66,7 @@ The separator; defaults to a space.
 
 One or more generators.  They will be coerced to generators if they are not already.
 If this is an arrayref, it will be considered as a list of generators and I<not> coerced into
-a L<Mock::Data::Set>.
+a L<uniform_set|Mock::Data::Set/new_uniform>.
 
 =item count
 

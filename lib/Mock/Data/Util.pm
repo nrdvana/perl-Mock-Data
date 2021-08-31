@@ -2,8 +2,9 @@ package Mock::Data::Util;
 use strict;
 use warnings;
 require Carp;
+our @CARP_NOT= qw( Mock::Data Mock::Data::Generator );
 require Exporter;
-our @ISA= ( 'Exporter' );
+our @ISA= qw( Exporter );
 our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
 	charset template
 );
@@ -33,30 +34,25 @@ Nothing is exported by default.  The following functions are available:
 =head2 uniform_set
 
   $generator= uniform_set( @items )
-  $generator= uniform_set( \@items )
 
-Shortcut for L<Mock::Data::Set/new_uniform>.
-Automatically calls L</inflate_template> when scalar items contain
-C<< "{...}" >>, and recursively wraps arrayrefs.
+Shortcut to create a L<Mock::Data::Set> with uniform probability.
 
 =head2 weighted_set
 
   $generator= weighted_set( $item => $weight, ... )
 
-Shortcut for L<Mock::RelationalData::SetPicker/new_weighted>.
-Automatically calls L</inflate_template> when scalar items contain
-C<< "{...}" >>, and recursively wraps arrayrefs.
+Shortcut to L<Mock::Data::Set/new_weighted>
 
 =cut
 
 sub uniform_set {
-	return Mock::Data::Set->new_uniform(@_);
+	return Mock::Data::Set->new(items => [@_]);
 }
 
 sub weighted_set {
+	my $i= 0;
 	return Mock::Data::Set->new_weighted(@_);
 }
-
 =head2 charset
 
   $generator= charset('A-Z');
@@ -145,12 +141,17 @@ Any object which has a C<compile> method is returned as-is.
 sub coerce_generator {
 	my ($spec)= @_;
 	!ref $spec?              Mock::Data::Template->new($spec)
-	: ref $spec eq 'ARRAY'?  Mock::Data::Set->new(items => $spec)
-	: ref $spec eq 'HASH'?   Mock::Data::Set->new_weighted(%$spec)
+	: ref $spec eq 'ARRAY'?  Mock::Data::Set->new(items => [map &_maybe_coerce_set_item, @$spec])
+	: ref $spec eq 'HASH'?   weighted_set(%$spec)
 	: ref $spec eq 'CODE'?   Mock::Data::GeneratorSub->new($spec)
 	: ref($spec)->can('generate')? $spec
 	: ref $spec eq 'Regexp'? Mock::Data::Regex->new($spec)
 	: Carp::croak("Don't know how to make '$spec' into a generator");
+}
+sub _maybe_coerce_set_item {
+	!ref? inflate_template($_)
+	: ref eq 'ARRAY'? Mock::Data::Set->new(items => [map &_maybe_coerce_set_item, @$_])
+	: coerce_generator($_);
 }
 
 =head2 mock_data_subclass

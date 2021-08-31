@@ -1,8 +1,12 @@
 package Mock::Data::Generator;
 use strict;
 use warnings;
+require MRO::Compat if "$]" < '5.009005';
+require mro;
+mro::set_mro(__PACKAGE__, 'c3');
 require Scalar::Util;
 require Carp;
+our @CARP_NOT= qw( Mock::Data Mock::Data::Util );
 
 # ABSTRACT: Utilities and optional base class for authoring generators
 # VERSION
@@ -32,40 +36,32 @@ Like the coderef, this takes an instance of L<Mock::Data> as the first non-self 
 followed by a hashref of named parameters, followed by arbitrary positional parameters after
 that.
 
-=head2 compile
-
-  my $callable= $generator->compile(@defaults);
-
-Return a generator that is optimized for calling like a coderef, with the given C<@defaults>.
-This implementation just wraps C<< $self->generate(@defaults) >> in a coderef and blesses it
-as L<Mock::Data::GeneratorSub>.  If appropriate, the coderef should allow further parameters
-to override the defaults.
-
 =cut
 
 sub generate { Carp::croak "Unimplemented" }
 
+=head2 compile
+
+  my $callable= $generator->compile(@default_params);
+
+Return a plain coderef that most optimally performs the generation for the C<@default_params>.
+This implementation just wraps C<< $self->generate(@defaults) >> in a coderef.  Subclasses
+may provide more useful optimization.
+
+The returned coderef takes one argument, of a L<Mock::Data> instance.
+
+=cut
+
 sub compile {
-	my $self= shift;
+	my ($self, @default_params)= @_;
 	# If no arguments, add a simple wrapper around ->generate
-	return bless sub { $self->generate(@_) }, 'Mock::Data::GeneratorSub' unless @_ > 1;
-	# Else wrap arguments in a new coderef
-	my @default= @_;
-	my $default_opts_hash= @default && ref $default[0] eq 'HASH'? $default[0] : undef;
-	my $code= $self->can('generate');
-	return bless sub {
-		my $mock= shift;
-		return $code->($self, $mock, @default) unless @_;
-		# Merge any options-by-name newly supplied with options-by-name from @default
-		unshift @_, (ref $_[0] eq 'HASH')? { %{$default_opts_hash}, %{shift @_} } : $default_opts_hash
-			if $default_opts_hash;
-		return $code->($self, $mock, @_);
-	}, 'Mock::Data::GeneratorSub';
+	return sub { $self->generate(shift) } unless @default_params > 1;
+	return sub { $self->generate(shift, @default_params) };
 }
 
 =head2 combine_generator
 
-  my $new_generator= $self->combine_generator( $peer );
+  my $new_generator= $generator->combine_generator( $peer );
 
 The default way to combine two generators is to create a new generator that selects each
 child generator 50% of the time.  For generators that define a collection of possible data,
@@ -76,7 +72,9 @@ This method allows for that custom behavior.
 
 our $_try_reverse;
 sub combine_generator {
+	# if already recursed, return the original default combination
 	return Mock::Data::Set->new_uniform($_[1], $_[0]) if $_try_reverse;
+	# Call the peer's combine_generator in case it is overridden
 	local $_try_reverse= 1;
 	return $_[1]->combine_generator($_[0]);
 }

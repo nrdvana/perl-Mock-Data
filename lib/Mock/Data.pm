@@ -327,14 +327,13 @@ value is whatever the generator returns.
 =cut
 
 sub call {
-	my $self= shift;
-	my $name= shift;
-	my $gen= $self->{_generator_cache}{$name} ||= do {
-		defined $self->{generators}{$name}
-			or Carp::croak("No such generator '$name'");
-		$self->{generators}{$name}->compile;
-	};
-	$gen->($self, @_);
+	my ($self, $name)= (shift, shift);
+	defined $self->{generators}{$name}
+		or Carp::croak("No such generator '$name'");
+	return $self->{generators}{$name}->generate($self, @_) if @_;
+	# If no params, call the cached compiled version
+	($self->{_generator_cache}{$name} ||= $self->{generators}{$name}->compile)
+		->($self, @_);
 }
 
 =head2 wrap
@@ -349,14 +348,12 @@ plan to make lots of calls to the generator.
 =cut
 
 sub wrap {
-	my $self= shift;
-	my $name= shift;
+	my ($self, $name)= (shift, shift);
 	my $gen= $self->{generators}{$name};
 	defined $gen or Carp::croak("No such generator '$name'");
-	# user wants additional arguments added.  The Generator might be able to optimize them
-	$gen= @_? $gen->compile(@_)
+	my $code= @_? $gen->compile(@_)
 		: ($self->{_generator_cache}{$name} ||= $gen->compile);
-	return sub { $gen->($self, @_) };
+	return sub { $code->($self) }
 }
 
 our $AUTOLOAD;

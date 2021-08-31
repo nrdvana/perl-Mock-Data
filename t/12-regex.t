@@ -101,9 +101,9 @@ subtest regex_generator => sub {
 			my $str= $generator->generate($mock);
 			like( $str, $regex, "Str=".escape_str($str) )
 				or diag explain $generator->regex_parse_tree;
-			$generator= $generator->compile;
+			my $gen= $generator->compile;
 			for (1..8) {
-				my $str= $generator->($mock);
+				my $str= $gen->($mock);
 				like( $str, qr/^$regex$/, "Str=".escape_str($str) );
 			}
 			# Test prefix/suffix feature
@@ -111,7 +111,7 @@ subtest regex_generator => sub {
 				my $match= $can_prefix && $can_suffix? qr/^_\n?$regex\n?_\Z/
 					: $can_prefix? qr/^_\n?$regex$/
 					: qr/^$regex\n?_\Z/;
-				my $str= $generator->($mock, { prefix => '_', suffix => '_' });
+				my $str= $generator->generate($mock, { prefix => '_', suffix => '_' });
 				like( $str, $match, "with prefix/suffix (str=".escape_str($str).")" );
 			}
 		};

@@ -2,9 +2,9 @@ package Mock::Data::Template;
 use strict;
 use warnings;
 use overload '""' => sub { shift->to_string };
-require Mock::Data::Generator;
-our @ISA= ( 'Mock::Data::Generator' );
 require Carp;
+require Mock::Data::Generator;
+our @ISA= qw( Mock::Data::Generator );
 
 # ABSTRACT: Create a generator that plugs other templates into a string
 # VERSION

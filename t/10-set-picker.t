@@ -14,7 +14,7 @@ subtest weighted_distribution => \&test_weighted_distribution;
 
 sub test_constructors {
 	is(
-		$CLASS->new_uniform( 'a' ),
+		$CLASS->new(['a']),
 		object {
 			call items => [ 'a' ];
 			call generate => 'a';
@@ -24,7 +24,7 @@ sub test_constructors {
 	);
 
 	is(
-		$CLASS->new_uniform( 'a', 'b', 'c' ),
+		$CLASS->new(['a', 'b', 'c']),
 		object {
 			call items => [ 'a', 'b', 'c' ];
 			call generate => in_set( 'a', 'b', 'c' );

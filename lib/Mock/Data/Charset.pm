@@ -1,8 +1,10 @@
 package Mock::Data::Charset;
 use strict;
 use warnings;
-use Carp ();
+require Carp;
 our @CARP_NOT= ('Mock::Data::Util');
+require Mock::Data::Generator;
+our @ISA= ( 'Mock::Data::Generator' );
 
 # ABSTRACT: Generator of strings from a set of characters
 # VERSION
@@ -474,7 +476,6 @@ sub generate {
 	if ($self->{members} || $member_count < 500) {
 		my $members= $self->members;
 		return sub {
-			return $self->generate(@_) if @_ > 1;
 			my $buf= '';
 			$buf .= $members->[$memb_min + int rand $memb_span]
 				for 1..$len->($_[0]);
@@ -489,7 +490,6 @@ sub generate {
 		my $invlist= $self->member_invlist;
 		my $index= $self->_invlist_index;
 		return sub {
-			return $self->generate(@_) if @_ > 1;
 			my $ret= '';
 			$ret .= chr _get_invlist_element($memb_min + int rand($memb_span), $invlist, $index)
 				for 1..$len->($_[0]);

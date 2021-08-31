@@ -2,58 +2,92 @@ package Mock::Data::GeneratorSub;
 use strict;
 use warnings;
 require Mock::Data::Generator;
-our @ISA= ( 'Mock::Data::Generator' );
+our @ISA= qw( Mock::Data::Generator );
 
 # ABSTRACT: Wrap a coderef to become a blessed Generator object
 # VERSION
 
 =head1 DESCRIPTION
 
-This is an implementation detail of L<Mock::Data::Generator>.  It gives a coderef the API of
-a L<Mock::Data::Generator> by blessing it.
+This class wraps a generator coderef to become a L<Generator|Mock::Data::Generator> object,
+and supply default parameters for L</generate> which can be overridden or combined with
+additional parameters.
 
 =head1 CONSTRUCTOR
 
 =head2 new
 
-Blesses a coderef, which is the only argument.
+  Mock::Data::GeneratorSub->new( $coderef, @default_params );
 
-=head1 METHODS
-
-=head2 compile
-
-Slightly optimized version of L<Mock::Data::Generator/compile>
-
-=head2 generate
-
-Calls C<$self>.
+This object's C<generate> method calls the C<$coderef> after merging the parameters passed
+to C<generate> with this list of C<@default_params>.  When merging parameters, named parameters
+are replaced by-name, and positional parameters are replacing entirely if new positional
+parameters are provided.
 
 =cut
 
 sub new {
-	Scalar::Util::reftype($_[1]) eq 'CODE' or Carp::croak("Not a coderef");
-	bless $_[1], __PACKAGE__;
+	my ($class, $coderef, @params)= @_;
+	if (ref $coderef eq 'HASH') {
+		@params= @{ $coderef->{params} || [] };
+		$coderef= $coderef->{coderef};
+	}
+	if (ref $class) {
+		$coderef ||= $class->{coderef};
+		@params= $class->_merge_params(@params);
+		$class= ref $class;
+	}
+	Scalar::Util::reftype($coderef) eq 'CODE' or Carp::croak("Not a coderef");
+	bless {
+		coderef => $coderef,
+		params => \@params,
+	}, $class;
 }
+
+sub _merge_params {
+	my $self= shift;
+	my $p= $self->{params};
+	my $named_p= ref $p->[0] eq 'HASH'? $p->[0] : undef;
+	# Merge any options-by-name newly supplied with options-by-name from @params
+	unshift @_, (ref $_[0] eq 'HASH')? { %$named_p, %{shift @_} } : $named_p
+		if $named_p;
+	# Append positional params if none provided
+	push @_, @{$p}[1..$#$p]
+		unless @_ > 1;
+	return @_;
+}
+
+=head1 METHODS
+
+=head2 generate
+
+  $generator->generate($mock, @params);
+
+Merge C<@params> with C<< $self->params >>  and then call C<< $self->coderef >>
+
+=cut
+
+sub generate {
+	my ($self, $mock)= (shift, shift);
+	$self->{coderef}->($mock, @_? $self->_merge_params(@_) : @{$self->{params}});
+}
+
+=head2 compile
+
+  $generator->compile(@params);
+
+Return a function C<< sub($mock){ ... } >> which calls C<< $self->coderef >> with the
+C<@params> merged with C<< $self->params >>.
+
+=cut
 
 sub compile {
 	my $self= shift;
-	return $self unless @_;
-	# Else wrap arguments in a new coderef
-	my @default= @_;
-	my $default_opts_hash= @default && ref $default[0] eq 'HASH'? $default[0] : undef;
-	return bless sub {
-		my $mock= shift;
-		return $self->($mock, @default) unless @_;
-		# Merge any options-by-name newly supplied with options-by-name from @default
-		unshift @_, (ref $_[0] eq 'HASH')? { %{$default_opts_hash}, %{shift @_} } : $default_opts_hash
-			if $default_opts_hash;
-		return $self->($mock, @_);
-	}, __PACKAGE__;
-}
-
-sub generate {
-	my $self= shift;
-	$self->(@_);
+	my $params= $self->{params};
+	return $self->{coderef} unless @_ || @$params;
+	my @new_params= $self->_merge_params(@_);
+	my $coderef= $self->{coderef};
+	return sub { $coderef->(shift, @new_params) };
 }
 
 1;
