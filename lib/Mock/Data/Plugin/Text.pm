@@ -124,12 +124,12 @@ heavily around 5 characters.
   $mockdata->words($max_len);
 
 This is an alias for C<< ->join({ source => '{word}', len => $max_len, max_len => $max_len }) >>.
-It takes the same named options as L</join>, but if a positional parameter if given, it
+It takes the same named options as L</join>, but if a positional parameter is given, it
 specifies C<$len> and C<$max_len>.
 
 =cut
 
-our $word_generator= Mock::Data::Charset->new(
+$word_generator= Mock::Data::Charset->new(
 	notation => 'a-z',
 	str_len => sub { 1 + int(rand 3 + rand 3 + rand 4) }
 );
