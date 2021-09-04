@@ -32,7 +32,7 @@ package Mock::Data;
     },
     
     # load plugins
-	with => ['Text'],  # Mock::Data::Plugin::Text
+    plugins => ['Text'],  # Mock::Data::Plugin::Text
   );
 
   # Put all your generators into a plugin for easy access
