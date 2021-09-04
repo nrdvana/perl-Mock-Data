@@ -4,13 +4,13 @@ use Mock::Data::Util 'inflate_template';
 
 my @tests= (
 	[ 'a',                   'a' ],
-	[ '{a}',                 'a1' ],
-	[ '{a 2}',               'a2' ],
-	[ '{a }',                'a1' ],
-	[ '{b}',                 'b1' ],
-	[ '{b x=5}',             'b5' ],
-	[ '{b x==5}',            'b=5' ],
-	[ '{a x=6}{b c x=4 d}',  'a1b4' ],
+	[ '{a}',                 'a()' ],
+	[ '{a 2}',               'a(x=2)' ],
+	[ '{a }',                'a()' ],
+	[ '{b}',                 'b()' ],
+	[ '{b x=5}',             'b(x=5)' ],
+	[ '{b x==5}',            'b(x==5)' ],
+	[ '{a x=6}{b c z=4 d}',  'a(x=6)b(x=c y=d z=4)' ],
 	# Invalid {} notation just results in no substitution performed
 	[ '{',                   '{' ],
 	[ 'x}',                  'x}' ],
@@ -20,18 +20,18 @@ my @tests= (
 	[ '{#20}',               ' ' ],
 	[ '{#7B}',               '{' ],
 	# nested templates
-	[ '{a {#7B}}',           'a{' ],
-	[ '{a x{#20}y}',         'ax y' ],
-	[ '{b x{#3D}=4}',        'b1' ],
-	[ '{b x={#3D}4}',        'b=4' ],
-	[ '{a {b x={#3D}}}',     'ab=' ],
+	[ '{a {#7B}}',           'a(x={)' ],
+	[ '{a x{#20}y}',         'a(x=x y)' ],
+	[ '{b x{#3D}=4}',        'b(x=x==4)' ],
+	[ '{b x={#3D}4}',        'b(x==4)' ],
+	[ '{a {b x={#3D}}}',     'a(x=b(x==))' ],
 );
 my $mockdata= MockRelData->new;
 for (@tests) {
 	my ($in, $out)= @$_;
 	my $tname= !ref $in? $in : ref $in eq 'ARRAY'? join(' ', '[', @$in, ']') : '\\'.$$in;
 	my $gen= inflate_template($in);
-	my $val= ref $gen? $gen->generate($mockdata, {}) : $gen;
+	my $val= ref $gen? $gen->generate($mockdata) : $gen;
 	is( $val, $out, $tname );
 }
 
@@ -41,10 +41,21 @@ for (@tests) {
 	my %generators;
 	BEGIN {
 		%generators= (
-			# return 'a' followed by the first non-named argument, defaulting to 1
-			a => sub { 'a' . ($_[2] || 1) },
-			# return 'b' followed by the argument named 'x', defaulting to 1
-			b => sub { 'b' . ($_[1]{x} || 1) },
+			# first positional param of a is 'x'.
+			a => sub {
+				my $mock= shift;
+				my %named= ref $_[0] eq 'HASH'? %{ (shift) } : ();
+				$named{x}= shift if @_;
+				'a('.join(' ', map "$_=$named{$_}", sort keys %named).')';
+			},
+			# first positional param of b is 'x', then 'y'
+			b => sub {
+				my $mock= shift;
+				my %named= ref $_[0] eq 'HASH'? %{ (shift) } : ();
+				$named{x}= shift if @_;
+				$named{y}= shift if @_;
+				'b('.join(' ', map "$_=$named{$_}", sort keys %named).')';
+			}
 		);
 	}
 	sub generators { \%generators }

@@ -2,15 +2,11 @@ package Mock::Data::Regex;
 use strict;
 use warnings;
 use Mock::Data::Charset;
-BEGIN {
-	*_parse_context= *Mock::Data::Charset::_parse_context;
-	*_escape_str= *Mock::Data::Charset::_escape_str;
-}
+use Mock::Data::Util qw( _parse_context _escape_str );
 require Carp;
 require Scalar::Util;
 require List::Util;
 require Hash::Util;
-require Mock::Data::Util;
 require Mock::Data::Generator;
 our @ISA= ( 'Mock::Data::Generator' );
 
@@ -275,7 +271,7 @@ sub _parse_regex {
 			my $pos= pos;
 			push @$expr, $self->_parse_regex($sub_flags);
 			/\G \) /gcx
-				or die "Missing end-parenthesee, started at '"._escape_str(substr($_,$pos,10))."'";
+				or die "Missing end-parenthesee, started at '"._parse_context($pos)."'";
 		}
 		# end sub-expression or next alternation?
 		if (/\G ( [|)] ) /gcx) {

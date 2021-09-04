@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use overload '""' => sub { shift->to_string };
 require Carp;
+use Mock::Data::Util qw( _parse_context _escape_str );
 require Mock::Data::Generator;
 our @ISA= qw( Mock::Data::Generator );
 
@@ -71,7 +72,7 @@ sub new {
 		: @_ > 1? @_
 		: Carp::croak("Invalid constructor arguments to $class");
 	# Parse now, to report errors
-	$self{_compiled}= _compile_template($self{template});
+	$self{_compiled}= $class->parse_template($self{template}, { compile => 1 });
 	bless \%self, $class;
 }
 
@@ -79,7 +80,7 @@ sub new {
 
 =head2 template
 
-The template string passed to the constructor
+The template string that was passed to the constructor
 
 =cut
 
@@ -117,32 +118,45 @@ sub to_string {
 	"template('" . shift->template . "')";
 }
 
-sub _compile_template {
-	my ($tpl, $flags)= @_;
-	# Split the template on each occurrence of "{...}" but respect nested {}
-	my @parts= split /(
-		\{                 # curly braces
-			(?:
-				(?> [^{}]+ )    # span of non-brace (no backtracking)
-				|
-				(?1)            # or recursive match of whole pattern
-			)*
-		\}
-		)/x, $tpl;
-	# Convert the odd-indexed elements (contents of {...}) into calls to generators
-	for (my $i= 1; $i < @parts; $i += 2) {
-		if ($parts[$i] eq '{}') {
-			$parts[$i]= '';
-		}
-		elsif ($parts[$i] =~ /^\{ [#] ([0-9A-Z]+) \} $/x) {
-			$parts[$i]= chr hex $1;
-		}
-		elsif ($parts[$i] =~ /^\{\w/) {
-			$parts[$i]= _compile_template_call(substr($parts[$i], 1, -1), $flags);
-		}
-		else {
-			Carp::croak "Invalid template notation '$parts[$i]'";
-		}
+=head2 parse_template
+
+  my $tree= Mock::Data::Template->parse_template("{a}{b}{c {d}}");
+  my $sub=  Mock::Data::Template->parse_template("{a}{b}{c {d}}", { compile => 1 });
+
+Class or instance method.  This parses a template string, returning a scalar, or an
+arrayref of parts where scalars are literal strings and arrayrefs represent a call
+to another generator.  Arrayrefs in the parameter list of the call to a generator
+represent templates, and arrayrefs within that represent call, and arrayrefs within
+that represent templates, and so on.
+
+If the C<compile> flag is given, this returns a coderef instead of an arrayref (but
+can still return a plain scalar).  The coderef matches the API for generators, taking
+a reference to L<Mock::Data> as the first parameter.
+
+=cut
+
+sub parse_template {
+	my ($self, $str, $flags)= @_;
+	local $_= $str;
+	pos= 0;
+	my $ret;
+	local $@;
+	defined eval { $ret= _parse_template($flags || {}) }
+		or Carp::croak("$@ at "._parse_context);
+	return $ret;
+}
+
+# Parse a template string in $_ from pos($_)
+sub _parse_template {
+	my @parts;
+	my $outer= !$_[0]{inner};
+	local $_[0]{inner}= 1 if $outer;
+	while (1) {
+		# Consume run of literal characters
+		push @parts, $1 if $outer? /\G([^{]+)/gc : /\G([^ \t\{\}]+)/gc;
+		# at end of template, or beginning of a reference to something
+		last unless /\G(?=\{)/gc;
+		push @parts, _parse_template_reference(@_);
 	}
 	# Combine adjacent scalars in the list
 	@parts= grep ref || length, @parts;
@@ -151,93 +165,56 @@ sub _compile_template {
 			$parts[$i] .= splice(@parts, $i+1, 1);
 		}
 	}
-	return
-		# No parts? empty string.
-		!@parts? ''
-		# One part of plain scalar? return it.
-		: @parts == 1 && !ref $parts[0]? $parts[0]
-		# Error context requested?
-		: ($flags && $flags->{add_err_context})? sub {
-			my $ret;
-			local $@;
-			eval {
-				$ret= join '', map +(ref $_? $_->(@_) : $_), @parts;
-				1;
-			} or do {
-				$@ =~ s/$/ for template '$tpl'/m;
-				Carp::croak "$@";
-			};
-			$ret;
-		}
-		# One part which is already a generator?
-		: @parts == 1? $parts[0]
-		# Multiple parts get concatenated, while calling nested generators
-		: sub { join '', map +(ref $_? $_->(@_) : $_), @parts };
+	if ($_[0]{compile}) {
+		return @parts == 1 && !ref $parts[0]? $parts[0]
+			: sub { join '', map +(ref? $_->(@_) : $_), @parts }
+	} else {
+		return \@parts;
+	}
 }
 
-sub _compile_template_call {
-	my ($name_and_args, $flags)= @_;
-	my @args;
-	while ($name_and_args =~ /\G(
-		(?:
-			(?> [^{ ]+ )         # span of non-space non-lbrace (no backtrack)
-			|
-			(\{                  # or matched braces containing...
-				(?:
-					(?> [^{}]+ )    # span of non-brace (no backtrack)
-					|
-					(?2)            # or recursive match of matched braces
-				)*
-			\})
-		)+
-		) [ ]*                   # don't capture trailing space
-		/xgc
-	) {
-		push @args, $1
-	}
-	my $gen_name= shift @args;
-	my (@calls, @named_args, @list_args);
-	# Each argument could be a literal value, or a name=value pair, and the values could include templates
-	for (@args) {
-		# Argument is NAME=VALUE
-		if ($_ =~ /^([^{=]+)=(.*)/) {
-			push @named_args, $1, $2;
-			# Check if VALUE contains template substitutions
-			if (index($2, '{') >= 0) {
-				my $gen= _compile_template($2);
-				if (!ref $gen) {
-					$named_args[-1]= $gen;
+# Parse one of the curly-brace notations
+sub _parse_template_reference {
+	if (/\G\{(\w+)/gc) {
+		my $generator_name= $1;
+		my (@named_param, @pos_param);
+		if (/\G[ \t]+/gc) {
+			while (!/\G\}/gc) {
+				if (/\G(\w+)=/gc) {
+					push @named_param, $1, _parse_template(@_);
 				} else {
-					my $i= $#named_args;
-					push @calls, sub { $named_args[$i]= $gen->(@_) };
+					push @pos_param, _parse_template(@_);
+				}
+				/\G[ \t]*/gc;
+			}
+		} else {
+			/\G\}/gc or die "Expected '}'";
+		}
+		if ($_[0]{compile}) {
+			# compile by making a list of which params are function calls, and update lists for only those positions
+			my @named_literal= @named_param;
+			my @dynamic_named= grep ref $named_param[$_], 0 .. $#named_param;
+			my @pos_literal= @pos_param;
+			my @dynamic_pos= grep ref $pos_literal[$_], 0 .. $#pos_param;
+			if (@named_param) {
+				return sub {
+					$named_literal[$_]= $named_param[$_]->(@_) for @dynamic_named;
+					$pos_literal[$_]= $pos_param[$_]->(@_) for @dynamic_pos;
+					$_[0]->call($generator_name, { @named_literal }, @pos_literal);
+				}
+			} else {
+				return sub {
+					$pos_literal[$_]= $pos_param[$_]->(@_) for @dynamic_pos;
+					$_[0]->call($generator_name, @pos_literal);
 				}
 			}
 		} else {
-			push @list_args, $_;
-			# Check of VALUE contains template substitutions
-			if (index($_, '{') >= 0) {
-				my $gen= _compile_template($_);
-				if (!ref $gen) {
-					$list_args[-1]= $gen;
-				} else {
-					my $i= $#list_args;
-					push @calls, sub { $list_args[$i]= $gen->(@_) };
-				}
-			}
+			return [ $generator_name, (@named_param? { @named_param }:()), @pos_param ];
 		}
 	}
-	return sub {
-		# Run any nested templates that were part of the arguments to this template
-		# In most cases this will be an empty list.
-		$_->(@_) for @calls;
-		# $_[0] is $mockdata.   $_[1] is \%named_args from caller of generator.
-		$_[0]->call(
-			$gen_name,
-			# The @args we parsed get added to the \%args passed to the function on each call
-			!@named_args? $_[1] : { %{$_[1]}, @named_args },
-			@list_args
-		);
-	};
+	return chr hex $1 if /\G\{ [#] ([0-9A-Za-z]+) \}/xgc;
+	return '' if /\G\{\}/xgc;
+	die "Invalid template notation\n";
 }
 
 1;

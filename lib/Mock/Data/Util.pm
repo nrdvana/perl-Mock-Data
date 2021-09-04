@@ -6,7 +6,7 @@ our @CARP_NOT= qw( Mock::Data Mock::Data::Generator );
 require Exporter;
 our @ISA= qw( Exporter );
 our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
-	charset template
+	charset template _parse_context _escape_str
 );
 
 # ABSTRACT: Exportable functions to assist with declaring mock data
@@ -225,6 +225,16 @@ sub _name_for_combined_isa {
 		$suffix= '_' . ++$iter;
 	}
 	$class . $suffix;
+}
+
+my %_escape_common= ( "\n" => '\n', "\t" => '\t', "\0" => '\0' );
+sub _escape_str {
+	my $str= shift;
+	$str =~ s/([^\x20-\x7E])/ $_escape_common{$1} || sprintf("\\x{%02X}",ord $1) /ge;
+	return $str;
+}
+sub _parse_context {
+	return '"' . _escape_str(substr($_, defined $_[0]? $_[0] : pos, 10)) .'"';
 }
 
 # included last, because they depend on this module.

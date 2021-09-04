@@ -1,6 +1,7 @@
 package Mock::Data::Charset;
 use strict;
 use warnings;
+use Mock::Data::Util qw( _parse_context _escape_str );
 require Carp;
 our @CARP_NOT= ('Mock::Data::Util');
 require Mock::Data::Generator;
@@ -541,16 +542,6 @@ sub parse {
 	# parse function needs $_ to be the input string
 	pos($notation)= 0;
 	return _parse_charset() for $notation;
-}
-
-my %_escape_common= ( "\n" => '\n', "\t" => '\t', "\0" => '\0' );
-sub _escape_str {
-	my $str= shift;
-	$str =~ s/([^\x20-\x7E])/ $_escape_common{$1} || sprintf("\\x{%02X}",ord $1) /ge;
-	return $str;
-}
-sub _parse_context {
-	return '"' . _escape_str(substr($_, pos, 10)) .'"';
 }
 
 our $have_prop_invlist;
