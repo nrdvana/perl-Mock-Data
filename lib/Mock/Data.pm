@@ -284,9 +284,8 @@ sub add_generators {
 		$gen= Mock::Data::Util::coerce_generator($gen);
 		$self->generators->{$name}= $gen;
 		delete $self->{_generator_cache}{$name};
-		if ($name =~ /::([^:]+)$/ and !defined $self->generators->{$1}) {
-			$self->generators->{$1}= $gen;
-		}
+		$self->generators->{$1} //= $gen
+			if $name =~ /::([^:]+)$/
 	}
 	$self;
 }

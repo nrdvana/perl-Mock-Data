@@ -106,11 +106,7 @@ Returns a L<Mock::Data::Generator> wrapping the argument.  The following types a
 
 =over
 
-=item Scalar without "{"
-
-Returns a Generator that always returns the constant scalar.
-
-=item Scalar with "{"
+=item Scalar
 
 Returns a L<Mock::Data::Template> that performs template substitution on the string.
 
@@ -124,15 +120,15 @@ Returns a L</weighted_set>.
 
 =item CODE ref
 
-Returns the coderef, blessed as a generator.
+Returns a L<Mock::Data::GeneratorSub> wrapping the coderef.
 
 =item Regexp ref
 
 Returns a L<Mock::Data::Regex> generator.
 
-=item C<< $obj->can('compile' >>
+=item C<< $obj->can('generate') >>
 
-Any object which has a C<compile> method is returned as-is.
+Any object which has a C<generate> method is returned as-is.
 
 =back
 
@@ -140,7 +136,8 @@ Any object which has a C<compile> method is returned as-is.
 
 sub coerce_generator {
 	my ($spec)= @_;
-	!ref $spec?              Mock::Data::Template->new($spec)
+	!defined $spec?          Carp::croak("Can't coerce undef to a generator")
+	: !ref $spec?            Mock::Data::Template->new($spec)
 	: ref $spec eq 'ARRAY'?  Mock::Data::Set->new(items => [map &_maybe_coerce_set_item, @$spec])
 	: ref $spec eq 'HASH'?   weighted_set(%$spec)
 	: ref $spec eq 'CODE'?   Mock::Data::GeneratorSub->new($spec)
