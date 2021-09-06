@@ -3,6 +3,8 @@ use Test2::V0;
 use Mock::Data::Charset;
 use Mock::Data;
 use Data::Dumper;
+use Time::HiRes 'time';
+sub explain { Data::Dumper::Dumper([@_]) }
 sub charset { Mock::Data::Charset->new(@_) }
 
 subtest parse_charset => sub {
@@ -106,24 +108,30 @@ subtest charset_invlist => sub {
 		[ '\w', 0x7F,
 			[ 48,58, 65,91, 95,96, 97,123 ]
 		],
+		($] ge '5.026'? ( # the definition of \w and \s varies over perl versions
 		[ '\w', 0x200,
-			[ 48,58, 65,91, 95,96, 97,123, 0x100,0x201 ],
+			[ 48,58, 65,91, 95,96, 97,123, 170,171, 181,182, 186,187, 192,215, 216,247, 248,0x201 ],
 		],
 		[ '\s', 0x7F,
-			[ 9,14, 32,33 ],
+			[ @space_ascii ],
 		],
 		[ '\s', undef,
-			[ 9,14, 32,33, 133,134, 160,161, 5760,5761, 8192,8203, 8232,8234, 8239,8240, 8287,8288, 12288,12289 ],
+			[ @space_ascii, 133,134, 160,161, 5760,5761, 
+			($] lt '5.012'? (6158,6159) : ()),
+			8192,8203, 8232,8234, 8239,8240, 8287,8288, 12288,12289 ],
 		],
+		):()),
 		[ '\p{Block: Katakana}', undef,
 			[ 0x30A0, 0x3100 ],
 		],
 		[ '^[:digit:]', 0x7F,
 			[ 0,0x30, 0x3A,0x80 ],
 		],
+		($] ge '5.012'? ( # \p{digit} wasn't available until 5.12
 		[ '[:alpha:]\P{digit}', 0x7F,
 			[ 0,0x30, 0x3A,0x80 ],
 		],
+		):()),
 		[ '\p{alpha}\P{alpha}', undef,
 			[ 0 ],
 		],
@@ -133,7 +141,9 @@ subtest charset_invlist => sub {
 	);
 	for (@tests) {
 		my ($notation, $max_codepoint, $expected)= @$_;
+		my $t0= time;
 		my $invlist= charset(notation => $notation, max_codepoint => $max_codepoint)->member_invlist;
+		note "Calculated in ".int((time-$t0) * 1000).'ms';
 		is( $invlist, $expected, "[$notation] ".($max_codepoint && $max_codepoint <= 127? 'ascii' : 'unicode') );
 	}
 };

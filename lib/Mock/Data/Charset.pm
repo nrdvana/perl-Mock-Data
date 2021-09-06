@@ -362,15 +362,70 @@ sub _build_member_invlist {
 	return $invlist;
 }
 
+# Lazy-built string of all basic-multilingual-plane characters
+our $_ascii_chars;
+our $_unicode_chars;
+sub _build_unicode_chars {
+	unless (defined $_unicode_chars) {
+		# Construct ranges of valid characters separated by NUL.
+		# Older perls die when the regex engine encounters an invalid character
+		# but newer perls just treat the invalid character as "not a member",
+		# unless the set is a negation in which case non-characters *are* a member.
+		# This makes the assumption that if a non-char isn't a member then \0 won't
+		# be either.
+		$_unicode_chars= '';
+		$_unicode_chars .= chr($_) for 0 .. 0xD7FF;
+		$_unicode_chars .= "\0";
+		$_unicode_chars .= chr($_) for 0xFDF0 .. 0xFFFD;
+		for (1..16) {
+			$_unicode_chars .= "\0";
+			$_unicode_chars .= chr($_) for ($_<<16) .. (($_<<16)|0xFFFD);
+		}
+	}
+	\$_unicode_chars;
+}
+
 sub _charset_invlist_brute_force {
-	my ($notation, $max_codepoint)= @_;
-	my $re= qr/[$notation]/;
+	my ($set, $max_codepoint)= @_;
+	my $inv= (ord $set == ord '^')? substr($set,1) : '^'.$set;
 	my @invlist;
-	my $match;
-	for (0..$max_codepoint) {
-		next unless $match xor (chr =~ $re);
-		push @invlist, $_;
-		$match= !$match;
+	
+	# optimize common case
+	if ($max_codepoint < 256) {
+		# Find first character of every match and first character of every non-match
+		# and convert to codepoints.
+		@invlist= map +(defined $_? ord($_) : ()),
+			($_ascii_chars //= join('', map chr($_), 0..255))
+				=~ / ( [$set] ) (?> [$set]* ) (?: \z | ( [$inv] ) (?> [$inv]* ) )/gx;
+	}
+	else {
+		_build_unicode_chars() unless defined $_unicode_chars;
+		# This got complicated while trying to support perls that can't match against non-characters.
+		# The non-characters have been replaced by NULs, so need to capture the char before and after
+		# each transition in case one of them is a NUL.
+		my @endpoints=
+			($max_codepoint < 0x10FFFF? substr($_unicode_chars,0,$max_codepoint+1) : $_unicode_chars)
+				=~ /( [$set] ) ( [$set] )* ( \z | [$inv] ) ( [$inv] )* /gx;
+		if (@endpoints) {
+			# List is a multiple of 4 elements: (first-member,last-member,first-non-member,last-non-member)
+			# We're not interested in the span of non-members at the end, so just remove those.
+			pop @endpoints; pop @endpoints;
+			# Iterate every transition of member/nonmember, and use the second character if present
+			# and isn't a NUL, else use the first character and add 1.
+			push @invlist, ord $endpoints[0];
+			for (my $i= 1; $i < @endpoints; $i+= 2) {
+				if (defined $endpoints[$i+1] && ord $endpoints[$i+1]) {
+					push @invlist, ord $endpoints[$i+1];
+				} elsif (defined $endpoints[$i]) {
+					push @invlist, 1 + ord $endpoints[$i];
+				} else {
+					push @invlist, 1 + $invlist[-1];
+				}
+			}
+			# substr is an estimate, because string skips characters, so remove any spurrous
+			# codepoints beyond the max
+			pop @invlist while @invlist && $invlist[-1] > $max_codepoint;
+		}
 	}
 	# If an "infinite" range would be returned, but the user set a maximum codepoint,
 	# list the max codepoint as the end of the invlist.
@@ -601,7 +656,7 @@ sub _class_invlist {
 	return $_class_invlist_cache{$class} ||= do {
 		$have_prop_invlist= do { require Unicode::UCD; !!Unicode::UCD->can('prop_invlist') }
 			unless defined $have_prop_invlist;
-		return $have_prop_invlist? [ Unicode::UCD::prop_invlist($class) ]
+		$have_prop_invlist? [ Unicode::UCD::prop_invlist($class) ]
 			: _charset_invlist_brute_force("\\p{$class}", 0x10FFFF);
 	};
 }
