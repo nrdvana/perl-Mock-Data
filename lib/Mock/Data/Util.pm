@@ -149,8 +149,8 @@ sub coerce_generator {
 	: Carp::croak("Don't know how to make '$spec' into a generator");
 }
 sub _maybe_coerce_set_item {
-	!ref? inflate_template($_)
-	: ref eq 'ARRAY'? Mock::Data::Set->new(items => [map &_maybe_coerce_set_item, @$_])
+	!ref($_)? inflate_template($_)
+	: ref($_) eq 'ARRAY'? Mock::Data::Set->new(items => [map &_maybe_coerce_set_item, @$_])
 	: coerce_generator($_);
 }
 

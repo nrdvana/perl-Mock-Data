@@ -159,7 +159,7 @@ sub _parse_template {
 		push @parts, _parse_template_reference(@_);
 	}
 	# Combine adjacent scalars in the list
-	@parts= grep ref || length, @parts;
+	@parts= grep ref $_ || length, @parts;
 	for (my $i= $#parts - 1; $i >= 0; --$i) {
 		if (!ref $parts[$i] and !ref $parts[$i+1]) {
 			$parts[$i] .= splice(@parts, $i+1, 1);
@@ -167,7 +167,7 @@ sub _parse_template {
 	}
 	if ($_[0]{compile}) {
 		return @parts == 1 && !ref $parts[0]? $parts[0]
-			: sub { join '', map +(ref? $_->(@_) : $_), @parts }
+			: sub { join '', map +(ref($_)? $_->(@_) : $_), @parts }
 	} else {
 		return \@parts;
 	}

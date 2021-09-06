@@ -261,11 +261,14 @@ sub _parse_regex {
 			my $sub_flags= $flags;
 			if (defined $1) {
 				# leading question mark means regex flags.  This only supports the ^...: one:
-				/\G \^ ( \w* )? : /gcx
-					or Carp::croak("Unsupported regex feature '(?".substr($_,pos,1)."'");
-				if (defined $1) {
+				if (/\G \^ ( \w* ) : /gcx) {
 					$sub_flags= {};
 					++$sub_flags->{$_} for split '', $1;
+				} elsif ($] < 5.020 and /\G (\w*)-\w* : /gcx) {
+					$sub_flags= {};
+					++$sub_flags->{$_} for split '', $1;
+				} else {
+					Carp::croak("Unsupported regex feature '(?".substr($_,pos,1)."'");
 				}
 			}
 			my $pos= pos;
@@ -456,7 +459,7 @@ sub generate {
 			# Plain nodes expect the pattern to be an arrayref where each item is a parse node or a literal
 			my $success= 1;
 			for (@{ $self->{pattern} }) {
-				$success &&= ref? $_->generate($out) : $out->append($_);
+				$success &&= ref $_? $_->generate($out) : $out->append($_);
 			}
 			next if $success;
 			# This repetition failed, but did we meet the requirement already?
@@ -470,7 +473,7 @@ sub generate {
 	else {
 		# Plain nodes expect the pattern to be an arrayref where each item is a parse node or a literal
 		for (@{ $self->{pattern} }) {
-			return 0 unless ref? $_->generate($out) : $out->append($_);
+			return 0 unless ref $_? $_->generate($out) : $out->append($_);
 		}
 	}
 	return 1;
@@ -506,7 +509,7 @@ sub generate {
 			# reset output
 			$out->reset($origin);
 			# append something new
-			next rep if ref? $_->generate($out) : $out->append($_);
+			next rep if ref $_? $_->generate($out) : $out->append($_);
 		}
 		# None of the options succeeded.  Did we get enough reps already?
 		if ($_ > $min) {
@@ -644,7 +647,7 @@ sub append {
 			}
 			else {
 				# TODO: support for "lookaround" assertions, will require regex match
-				...
+				die "Unimplemented: zero-width lookaround assertions";
 			}
 		}
 		return 0; # no match found for the restriction in effect

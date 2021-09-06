@@ -63,7 +63,7 @@ with per-instance settings.
 use strict;
 use warnings;
 BEGIN {
-	require MRO::Compat if "$]" < '5.009005';
+#	require MRO::Compat if "$]" < '5.009005';   # now requiring v5.10 for dist, anyway
 	require mro;
 	mro::set_mro(__PACKAGE__, 'c3');
 }

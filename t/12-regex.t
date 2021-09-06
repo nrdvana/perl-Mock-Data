@@ -89,9 +89,12 @@ subtest regex_generator => sub {
 		[ qr/(ab){3,}/, 1, 1 ],
 		[ qr/a/i, 1, 1 ],
 		[ qr/ab/i, 1, 1 ],
-		[ qr/[[:alpha:]\P{digit}]+/, 1, 1 ],
-		[ qr/[[:alpha:]\P{digit}]+/a, 1, 1 ],
-		[ qr/[\w\d]+/a, 1, 1 ],
+		($] >= 5.014? eval <<'END'
+			[ qr/[[:alpha:]\P{digit}]+/, 1, 1 ],
+			[ qr/[[:alpha:]\P{digit}]+/a, 1, 1 ],
+			[ qr/[\w\d]+/a, 1, 1 ],
+END
+		:()),
 	);
 	my $mock= Mock::Data->new();
 	for (@tests) {
@@ -121,7 +124,10 @@ subtest regex_generator => sub {
 subtest codepoint_constraints => sub {
 	my @tests= (
 		[ qr/.{50}/ ],
+		($] >= 5.014? eval <<'END'
 		[ qr/.{50}/a ],
+END
+		:()),
 	);
 	my $mock= Mock::Data->new();
 	for (@tests) {

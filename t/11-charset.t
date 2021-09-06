@@ -92,6 +92,8 @@ subtest merge_invlists => sub {
 };
 
 subtest charset_invlist => sub {
+	# Perl added vertical-tab to \s in 5.12
+	my @space_ascii= ( 9,( $] lt '5.012'? (11,12):() ),14, 32,33 );
 	my @tests= (
 		[ 'A-Z', 0x7F,
 			[ 65,91 ]
@@ -197,18 +199,22 @@ subtest get_invlist_element => sub {
 };
 
 subtest get_member_find_member => sub {
-	my $charset= charset('[:punct:]');
+	my $charset= charset('[:punct:]'); # a complicated but not huge charset, to test the indexing
+	note join(' ', map "$_=".chr($_), @{ $charset->member_invlist }[0..20]);
 	for (my $i= 0; $i < $charset->count; $i++) {
 		my $ch= $charset->get_member($i);
 		is( $charset->find_member($ch), $i, "found $ch at $i" );
 	}
-	is( [ $charset->find_member("\n") ], [ undef, 0 ], '\n would insert at position 0' );
-	is( [ $charset->find_member("A") ], [ undef, 17 ], '[ would insert at position 26' );
+
+	$charset= charset(notation => 'A-FH-Z', max_codepoint => 127);  # punct was not stable enough across perl versions
+	is( [ $charset->find_member("0") ], [ undef, 0 ], '0 would insert at position 0' );
+	is( [ $charset->find_member("G") ], [ undef, 6 ], 'G would insert at position 6' );
 };
 
 subtest lazy_attributes => sub {
+	skip_all "\\P{digit} not supported on 5.10"
+		if $] lt '5.012';
 	my $charset= charset('[:alpha:]\P{digit}');
-	note Data::Dumper::Dumper($charset->member_invlist);
 	ok( !$charset->find_member('0'), '"0" not in the set of alpha and non-digit' );
 	is( scalar $charset->find_member('a'), 87, 'member "a" found at 87' );
 	ok( defined $charset->{member_invlist} && defined $charset->{_invlist_index}, 'used invlist' );

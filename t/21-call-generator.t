@@ -58,8 +58,8 @@ for my $t (@tests) {
 
 sub _flatten_name {
 	join ' ', map {
-		!defined? 'undef'
-		: !ref? $_
+		!defined($_)? 'undef'
+		: !ref($_)? $_
 		: ref eq 'ARRAY'? '['._flatten_name(@$_).']'
 		: ref eq 'HASH'? '{'._flatten_name(%$_).'}'
 		: '?'

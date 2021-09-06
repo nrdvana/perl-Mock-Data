@@ -600,21 +600,16 @@ sub parse {
 }
 
 our $have_prop_invlist;
-our @_backslash_h_invlist= (
-  0x09,0x0A, 0x20,0x21, 0xA0,0xA1, 0x1680,0x1681, 0x2000,0x200B, 0x202F,0x2030,
-  0x205F,0x2060, 0x3000,0x3001
-);
-our @_backslash_v_invlist= ( 0x0A,0x0E, 0x85,0x86, 0x2028,0x202A );
 our %_parse_charset_backslash= (
 	a => ord "\a",
 	b => ord "\b",
-	c => sub { ... },
+	c => sub { die "Unimplemented: \\c" },
 	d => sub { push @{$_[0]{classes}}, 'digit'; undef; },
 	D => sub { push @{$_[0]{classes}}, '^digit'; undef; },
 	e => ord "\e",
 	f => ord "\f",
-	h => sub { push @{$_[0]{classes}}, '\\h'; undef; },
-	H => sub { push @{$_[0]{classes}}, '^\\h'; undef; },
+	h => sub { push @{$_[0]{classes}}, 'horizspace'; undef; },
+	H => sub { push @{$_[0]{classes}}, '^horizspace'; undef; },
 	n => ord "\n",
 	N => \&_parse_charset_namedchar,
 	o => \&_parse_charset_oct,
@@ -624,8 +619,8 @@ our %_parse_charset_backslash= (
 	s => sub { push @{$_[0]{classes}}, 'space'; undef; },
 	S => sub { push @{$_[0]{classes}}, '^space'; undef; },
 	t => ord "\t",
-	v => sub { push @{$_[0]{classes}}, '\\v'; undef; },
-	V => sub { push @{$_[0]{classes}}, '^\\v'; undef; },
+	v => sub { push @{$_[0]{classes}}, 'vertspace'; undef; },
+	V => sub { push @{$_[0]{classes}}, '^vertspace'; undef; },
 	w => sub { push @{$_[0]{classes}}, 'word'; undef; },
 	W => sub { push @{$_[0]{classes}}, '^word'; undef; },
 	x => \&_parse_charset_hex,
@@ -641,8 +636,6 @@ our %_parse_charset_backslash= (
 	9 => \&_parse_charset_oct,
 );
 our %_class_invlist_cache= (
-	'\\h' => \@_backslash_h_invlist,
-	'\\v' => \@_backslash_v_invlist,
 	'Any' => [ 0 ],
 	'\\N' => [ 0, ord("\n"), 1+ord("\n") ],
 );
@@ -684,7 +677,7 @@ sub _parse_charset_classname {
 	my ($result, $negate)= @_;
 	/\G \{ ([^}]+) \} /gcx
 		or die "Invalid class name following \\p at "._parse_context;
-	push @{$result->{classes}}, ($negate? "^$1" : $1);
+	push @{$result->{classes}}, lc($negate? "^$1" : $1);
 	undef
 }
 sub _parse_charset {
