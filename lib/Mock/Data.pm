@@ -117,8 +117,7 @@ sub new {
 			: (@_ == 1 && ref $_[0] eq 'HASH')? $_[0]
 			: { @_ };
 		if (my $plugins= $args->{plugins}) {
-			$self= $self->load_plugin($_)
-				for ref $plugins? @$plugins : ( $plugins );
+			$self= $self->load_plugin(ref $plugins? @$plugins : ( $plugins ));
 		}
 		$self->add_generators($args->{generators})
 			if $args->{generators};
@@ -223,19 +222,21 @@ the initial reference is gone.  If you want a clone, call C<< $mock->new >> firs
 =cut
 
 sub load_plugin {
-	my ($self, $name)= @_;
-	return $self if $self->{_loaded_plugins}{$name};
-	my $class= "Mock::Data::Plugin::$name";
-	unless ($class->can('apply_mockdata_plugin')) {
-		Module::Runtime::require_module($class);
-		$class->can('apply_mockdata_plugin')
-			or Carp::croak("No such method ${class}->apply_mockdata_plugin");
+	my ($self, @names)= @_;
+	for my $name (@names) {
+		next if $self->{_loaded_plugins}{$name};
+		my $class= "Mock::Data::Plugin::$name";
+		unless ($class->can('apply_mockdata_plugin')) {
+			Module::Runtime::require_module($class);
+			$class->can('apply_mockdata_plugin')
+				or Carp::croak("No such method ${class}->apply_mockdata_plugin");
+		}
+		$self= $class->apply_mockdata_plugin($self);
+		ref($self) && ref($self)->isa(__PACKAGE__)
+			or Carp::croak("$class->apply_mockdata_plugin did not return a Mock::Data");
+		++$self->{_loaded_plugins}{$name};
 	}
-	my $new= $class->apply_mockdata_plugin($self);
-	ref($new) && ref($new)->isa(__PACKAGE__)
-		or Carp::croak("$class->apply_mockdata_plugin did not return a Mock::Data");
-	++$self->{_loaded_plugins}{$name};
-	return $new;
+	return $self;
 }
 
 =head2 add_generators
