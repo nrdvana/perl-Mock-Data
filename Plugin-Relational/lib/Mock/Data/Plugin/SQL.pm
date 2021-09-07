@@ -6,17 +6,20 @@ use Exporter::Extensible -exporter_setup => 1;
 
 =head1 SYNOPSIS
 
+  my $mock= Mock::Data->new(['SQL']);
   $mock->integer(11);
   $mock->sequence($seq_name);
   $mock->numeric([9,2]);
   $mock->float({ bits => 32 });
   $mock->bit;
+  $mock->boolean;
   $mock->varchar(16);
   $mock->char(16);
   $mock->text(256);
-  $mock->date;
-  $mock->datetime({ after => '1900-01-01', before => '1990-01-01' });
   $mock->blob(1000);
+  $mock->varbinary(32);
+  $mock->datetime({ after => '1900-01-01', before => '1990-01-01' });
+  $mock->date;
   $mock->uuid;
   $mock->json({ data => $data || {} });
   $mock->inet;
@@ -25,6 +28,9 @@ use Exporter::Extensible -exporter_setup => 1;
 
 This module defines generators that match the data type names used by various relational
 databases.  
+
+The output patterns are likely to change in future versions, but will always be valid for
+inserting into a column of that type.
 
 =cut
 
@@ -42,7 +48,7 @@ sub apply_mockdata_plugin {
 			blob tinyblob mediumblob longblob
 			varbinary binary
 			date datetime timestamp
-			uuid json inet cidr macaddr
+			uuid json jsonb inet cidr macaddr
 		)
 	);
 }
@@ -85,20 +91,25 @@ Alias for C<< integer({ bits => 63 }) >>.
 
 =cut
 
+our $integer_maxbits= eval { pack 'Q', 1 }? 64 : 32;
 sub integer {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
 	my $size= shift // ($params? $params->{size} : undef);
-	my $signed= $params? $params->{signed} : undef;
+	my $signed= $params? !$params->{unsigned} : 1;
 	if (defined $size) {
 		my $digits= 1 + int rand($size > 1 && $signed? $size-2 : $size-1);
 		my $val= 10**($digits-1) + int rand(9 * 10**($digits-1));
 		return $signed && int rand 2? -$val : $val;
 	} else {
 		my $bits= ($params? $params->{bits} : undef) // 32;
-		--$bits unless defined $signed && !$signed;
-		$bits= int rand($bits+1);
-		my $val= 2**($bits-1) + int rand(2 ** ($bits-1));
+		$bits= $integer_maxbits if $bits > $integer_maxbits;
+		$bits= int rand($signed? $bits : $bits+1);
+		# calls to rand() only return 53 bits, because it is a double.  To get 64, need to
+		# combine multiple rands.  Also, can't get 32 bits from rand on 32bit arch.
+		my $val= $bits < 32? int(rand(1<<$bits))
+			: $integer_maxbits == 32? int rand(2**32)
+			: (unpack 'Q', pack('VV', rand(2**32), rand(2**32))) >> (64 - $bits);
 		return $signed && int rand 2? -$val : $val;
 	}
 }
@@ -174,10 +185,14 @@ sub numeric {
 	my $scale= 0;
 	($size, $scale)= @$size if ref $size eq 'ARRAY';
 	my $val= integer($mock, $size);
-	main::note "size=$size scale=$scale val=$val";
 	if ($scale) {
-		$val= '0'x($scale+1 - length $val) . $val
-			if length $val < $scale+1;
+		if ($val < 0) {
+			substr($val,1,0,'0'x($scale+2 - length $val))
+				if length $val < $scale+2;
+		} else {
+			substr($val,0,0,'0'x($scale+1 - length $val))
+				if length $val < $scale+1;
+		}
 		substr($val, -$scale, 0)= '.';
 	}
 	return $val;
@@ -211,10 +226,13 @@ Aliases for C<< float({ size => 15 }) >>
 sub float {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $size= shift // ($params? ($params->{size} // int(($params->{bits} || 20) * .30103)): undef) // 7;
-	my $val= int rand(10**$size);
-	substr($val, int rand length $val, 0)= '.';
-	return int rand 2? "-$val" : $val;
+	my $bits= shift // ($params? ($params->{bits} // int(($params->{size} || 7) * 3.3219)): undef) // 23;
+	# This algorithm chooses floating point numbers that don't lose precision when cast into
+	# a float of the specified number of significant bits.
+	my $sign= int rand 2? -1 : 1;
+	my $exponent= 2 ** -int(rand $bits);
+	my $significand= int rand 2**$bits;
+	$sign * $exponent * $significand;
 }
 
 *real= *float4= *float;
@@ -222,7 +240,7 @@ sub float {
 sub double {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	float($mock, { size => 15, $params? %$params : () }, @_);
+	float($mock, { bits => 52, $params? %$params : () }, @_);
 }
 
 *float8= *double_precision= *double;
@@ -326,10 +344,10 @@ Alias for C<datetime>.
 =cut
 
 sub _epoch_to_iso8601 {
-	my @t= gmtime(shift);
+	my @t= localtime(shift);
 	return sprintf "%04d-%02d-%02d %02d:%02d:%02d", $t[5]+1900, $t[4]+1, @t[3,2,1,0];
 }
-sub _iso8601_to_gmtime {
+sub _iso8601_to_epoch {
 	my $str= shift;
 	$str =~ /^
 		(\d{4}) - (\d{2}) - (\d{2})
@@ -346,9 +364,9 @@ sub _iso8601_to_gmtime {
 sub datetime {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $before= $params && $params->{before}? _iso8601_to_gmtime($params->{before}) : (time - 86400);
-	my $after=  $params && $params->{after}?  _iso8601_to_gmtime($params->{after})  : (time - int(10*365.25*86400));
-	_epoch_to_iso8601($after + rand($before-$after)); 
+	my $before= $params && $params->{before}? _iso8601_to_epoch($params->{before}) : (time - 86400);
+	my $after=  $params && $params->{after}?  _iso8601_to_epoch($params->{after})  : (time - int(10*365.25*86400));
+	_epoch_to_iso8601($after + int rand($before-$after)); 
 }
 
 sub date {
@@ -445,7 +463,7 @@ Return a random CIDR starting with C<< 127. >> like C<< 127.0.42.0/24 >>
 sub cidr {
 	my $blank= 1 + int rand 23;
 	my $val= (int rand(1<<(24 - $blank))) << $blank;
-	sprintf '127.%d.%d.%d/%d', (unpack 'a', pack 'N', $val)[1,2,3], 32 - $blank;
+	sprintf '127.%d.%d.%d/%d', (unpack 'C4', pack 'N', $val)[1,2,3], 32 - $blank;
 }
 
 =head3 macaddr
