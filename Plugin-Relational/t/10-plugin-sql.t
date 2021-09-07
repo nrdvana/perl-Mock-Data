@@ -1,9 +1,8 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Util qw( _escape_str );
+use Mock::Data::Util qw( _dump );
 use Mock::Data::Plugin::SQL;
 use Mock::Data;
-sub _flatten;
 
 my $reps= $ENV{GENERATE_COUNT} || 5;
 
@@ -143,23 +142,12 @@ for (my $i= 0; $i < @tests; $i += 2) {
 	subtest $generator => sub {
 		for (my $j= 0; $j < @$subtests; $j += 2) {
 			my ($args, $expected)= @{$subtests}[$j,$j+1];
-			my $name= '(' . join(',', map _flatten, @$args) . ')';
+			my $name= '(' . join(',', map _dump, @$args) . ')';
 			for (1 .. $reps) {
 				like( $mock->$generator(@$args), $expected, $name );
 			}
 		}
 	};
-}
-sub _flatten {
-	local $_= shift if @_;
-	!defined $_? 'undef'
-	: !ref $_? '"'._escape_str($_).'"'
-	: ref $_ eq 'ARRAY'? '['.join(', ', map _flatten, @$_).']'
-	: ref $_ eq 'HASH'? do {
-		my $x= $_;
-		'{'.join(', ', map "$_ => "._flatten($x->{$_}), keys %$x).'}'
-	}
-	: "$_"
 }
 
 done_testing;

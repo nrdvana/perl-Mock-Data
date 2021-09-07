@@ -1,5 +1,19 @@
 package Mock::Data::Plugin::SQL;
 use Exporter::Extensible -exporter_setup => 1;
+my @generator_methods= qw(
+	tinyint smallint bigint
+	serial smallserial bigserial
+	numeric
+	float4 real float8 double double_precision
+	bit bool boolean
+	varchar char nvarchar
+	text tinytext mediumtext longtext ntext
+	blob tinyblob mediumblob longblob
+	varbinary binary
+	date datetime timestamp
+	json jsonb inet cidr macaddr
+);
+export(@generator_methods);
 
 # ABSTRACT: Collection of generators that produce data matching a SQL column type
 # VERSION
@@ -35,21 +49,9 @@ inserting into a column of that type.
 =cut
 
 sub apply_mockdata_plugin {
-	my ($class, $mockdata)= @_;
-	$mockdata->load_plugin('Text')->add_generators(
-		map +("SQL::$_" => $class->can($_)), qw(
-			integer tinyint smallint bigint
-			sequence serial smallserial bigserial
-			numeric decimal
-			float float4 real float8 double double_precision
-			bit bool boolean
-			varchar char nvarchar
-			text tinytext mediumtext longtext ntext
-			blob tinyblob mediumblob longblob
-			varbinary binary
-			date datetime timestamp
-			uuid json jsonb inet cidr macaddr
-		)
+	my ($class, $mock)= @_;
+	$mock->load_plugin('Number','Text')->add_generators(
+		map +("SQL::$_" => $class->can($_)), @generator_methods
 	);
 }
 
@@ -59,23 +61,7 @@ sub apply_mockdata_plugin {
 
 =head3 integer
 
-  $int= $mock->integer($size_digits);
-  $int= $mock->integer({ size => $digits, signed => $bool });
-  $int= $mock->integer({ bits => $bits,   signed => $bool });
-  $int= $mock
-
-Returns a random integer up to C<$size> decimal digits or up to C<$bits>.
-If C<$size> and C<$bits> are both specified, C<$size> wins.
-If neither are specified, the default is C<< { bits => 31 } >>.
-If C<signed> is undef, this generates non-negative integers, and the default
-bits are reduced by one (7, 15, 31, 63).  If C<signed> is true, this generates
-negative numbers.  If C<signed> is false, the number of default bits raises to
-(8, 16, 32, 64).
-
-The randomization chooses the length of the number (either bits or decimal digits)
-separately from the value of the number.  This results in numbers tending toward
-the middle string length, rather than an even distribution over the range of
-values.
+See L<Mock::Data::Plugin::Number/integer>
 
 =head3 tinyint
 
@@ -91,54 +77,27 @@ Alias for C<< integer({ bits => 63 }) >>.
 
 =cut
 
-our $integer_maxbits= eval { pack 'Q', 1 }? 64 : 32;
-sub integer {
-	my $mock= shift;
-	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $size= shift // ($params? $params->{size} : undef);
-	my $signed= $params? !$params->{unsigned} : 1;
-	if (defined $size) {
-		my $digits= 1 + int rand($size > 1 && $signed? $size-2 : $size-1);
-		my $val= 10**($digits-1) + int rand(9 * 10**($digits-1));
-		return $signed && int rand 2? -$val : $val;
-	} else {
-		my $bits= ($params? $params->{bits} : undef) // 32;
-		$bits= $integer_maxbits if $bits > $integer_maxbits;
-		$bits= int rand($signed? $bits : $bits+1);
-		# calls to rand() only return 53 bits, because it is a double.  To get 64, need to
-		# combine multiple rands.  Also, can't get 32 bits from rand on 32bit arch.
-		my $val= $bits < 32? int(rand(1<<$bits))
-			: $integer_maxbits == 32? int rand(2**32)
-			: (unpack 'Q', pack('VV', rand(2**32), rand(2**32))) >> (64 - $bits);
-		return $signed && int rand 2? -$val : $val;
-	}
-}
-
 sub tinyint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	integer($mock, { $params? %$params : (), bits => 8 }, @_);
+	$mock->call(integer => { $params? %$params : (), bits => 8 }, @_);
 }
 
 sub smallint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	integer($mock, { $params? %$params : (), bits => 16 }, @_);
+	$mock->call(integer => { $params? %$params : (), bits => 16 }, @_);
 }
 
 sub bigint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	integer($mock, { $params? %$params : (), bits => 64 }, @_);
+	$mock->call(integer => { $params? %$params : (), bits => 64 }, @_);
 }
 
 =head3 sequence
 
-  $int= $mock->sequence($seq_name);
-  $int= $mock->sequence({ sequence_name => $seq_name });
-
-Returns the next number in the named sequence, starting with 1.  The sequence name is required.
-The state of the sequence is stored in C<< $mock->generator_state->{"SQL::sequence"}{$seq_name} >>.
+See L<Mock::Data::Plugin::Number/sequence>
 
 =head3 serial
 
@@ -154,64 +113,30 @@ Alias for sequence
 
 =cut
 
-sub sequence {
+sub serial {
 	my $mock= shift;
-	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $name= shift // ($params? $params->{sequence_name} : undef)
-		// Carp::croak("sequence_name is required for sequence generator");
-	return ++$mock->generator_state->{"SQL::sequence"}{$name};
+	$mock->call(sequence => @_);
 }
-
-*serial= *bigserial= *smallserial= *sequence;
-
-=head3 numeric
-
-  $str= $mock->numeric($size);
-  $str= $mock->numeric([ $size, $scale ]);
-  $str= $mock->numeric({ size => [ $size, $scale ] });
-
-Note that this generator returns strings, to make sure to avoid floating imprecision.
+BEGIN { *bigserial= *smallserial= *serial; }
 
 =head3 decimal
 
-Alias for C<numeric>.
+See L<Mock::Data::Plugin::Numeric/decimal>
+
+=head3 numeric
+
+Alias for C<decimal>.
 
 =cut
 
 sub numeric {
 	my $mock= shift;
-	my $params= ref $_ eq 'HASH'? shift : undef;
-	my $size= shift // ($params? $params->{size} : undef) // 11;
-	my $scale= 0;
-	($size, $scale)= @$size if ref $size eq 'ARRAY';
-	my $val= integer($mock, $size);
-	if ($scale) {
-		if ($val < 0) {
-			substr($val,1,0,'0'x($scale+2 - length $val))
-				if length $val < $scale+2;
-		} else {
-			substr($val,0,0,'0'x($scale+1 - length $val))
-				if length $val < $scale+1;
-		}
-		substr($val, -$scale, 0)= '.';
-	}
-	return $val;
+	$mock->call(decimal => @_);
 }
-
-*decimal= *numeric;
 
 =head3 float
 
-  $str= $mock->float;
-  $str= $mock->float($digits);
-  $str= $mock->float({ size => $digits });
-  $str= $mock->float({ bits => $n });
-
-Generate a floating point number.  This uses a cheap randomization of choosing a number of
-digits and then inserting a decimal point randomly.  This doesn't result in a very wide
-variety of float, but at least they are easy to read.
-
-The default size is 7, which approximates a 32-bit float.
+See L<Mock::Data::Plugin::Numeric/float>
 
 =head3 real, float4
 
@@ -223,27 +148,20 @@ Aliases for C<< float({ size => 15 }) >>
 
 =cut
 
-sub float {
+sub float4 {
 	my $mock= shift;
-	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $bits= shift // ($params? ($params->{bits} // int(($params->{size} || 7) * 3.3219)): undef) // 23;
-	# This algorithm chooses floating point numbers that don't lose precision when cast into
-	# a float of the specified number of significant bits.
-	my $sign= int rand 2? -1 : 1;
-	my $exponent= 2 ** -int(rand $bits);
-	my $significand= int rand 2**$bits;
-	$sign * $exponent * $significand;
+	$mock->call(float => @_);
 }
 
-*real= *float4= *float;
+BEGIN { *real= *float4; }
 
 sub double {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	float($mock, { bits => 52, $params? %$params : () }, @_);
+	$mock->call(float => { bits => 52, $params? %$params : () }, @_);
 }
 
-*float8= *double_precision= *double;
+BEGIN { *float8= *double_precision= *double; }
 
 =head3 bit
 
@@ -259,7 +177,7 @@ more convenient to use in Perl.
 sub bit {
 	int rand 2;
 }
-*bool= *boolean= *bit;
+BEGIN { *bool= *boolean= *bit; }
 
 =head2 Text Generators
 
@@ -292,7 +210,7 @@ sub varchar {
 	return $mock->call('Text::join', { source => $source_gen, max_len => $size, len => int rand $size });
 }
 
-*nvarchar= *varchar;
+BEGIN { *nvarchar= *varchar; }
 
 sub text {
 	my $mock= shift;
@@ -300,7 +218,7 @@ sub text {
 	varchar($mock, { size => 256, ($params? %$params : ()) }, @_);
 }
 
-*ntext= *tinytext= *mediumtext= *longtext= *text;
+BEGIN { *ntext= *tinytext= *mediumtext= *longtext= *text; }
 
 =head3 char
 
@@ -373,7 +291,7 @@ sub date {
 	substr(datetime(@_), 0, 10)
 }
 
-*timestamp= *datetime;
+BEGIN { *timestamp= *datetime; }
 
 =head2 Binary Data Generators
 
@@ -389,32 +307,16 @@ sub blob {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
 	my $size= shift // ($params? $params->{size} : undef) // 256;
-	my $data= '';
-	my $n= int rand $size;
-	for (0 .. ($n/2)) {
-		$data .= pack 'v', rand 0x10000; 
-	}
-	$data .= pack 'c', rand 0x100
-		if length $data < $n;
-	return $data;
+	$mock->call(byte => $size);
 }
 
-*tinyblob= *mediumblob= *longblob= *bytea= *binary= *varbinary= *blob;
+BEGIN { *tinyblob= *mediumblob= *longblob= *bytea= *binary= *varbinary= *blob; }
 
 =head2 Structured Data Generators
 
 =head3 uuid
 
-Return a "version 4" UUID composed of weak random bits from C<rand()>.
-
-=cut
-
-sub uuid {
-	sprintf "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
-		rand(1<<16), rand(1<<16), rand(1<<16),
-		(4<<12)|rand(1<<12), (1<<15)|rand(1<<14),
-		rand(1<<16), rand(1<<16), rand(1<<16)
-}
+See L<Mock::Data::Plugin::Numeric/uuid>
 
 =head3 json, jsonb
 
@@ -442,7 +344,7 @@ sub json {
 	return defined $data? _json_encoder->encode($data) : '{}';
 }
 
-*jsonb= *json;
+BEGIN { *jsonb= *json; }
 
 =head3 inet
 

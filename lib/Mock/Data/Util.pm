@@ -2,8 +2,9 @@ package Mock::Data::Util;
 use Exporter::Extensible -exporter_setup => 1;
 export(qw(
 	uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
-	charset template _parse_context _escape_str
+	charset template _parse_context _escape_str _dump
 ));
+require Scalar::Util;
 require Carp;
 our @CARP_NOT= qw( Mock::Data Mock::Data::Generator );
 
@@ -224,11 +225,27 @@ sub _name_for_combined_isa {
 	$class . $suffix;
 }
 
+# For those cases where Data::Dumper is both overkill and insufficient...
 my %_escape_common= ( "\n" => '\n', "\t" => '\t', "\0" => '\0' );
 sub _escape_str {
 	my $str= shift;
 	$str =~ s/([^\x20-\x7E])/ $_escape_common{$1} || sprintf("\\x{%02X}",ord $1) /ge;
 	return $str;
+}
+sub _dump;
+sub _dump {
+	local $_= shift if @_;
+	!defined $_? 'undef'
+	: !ref $_? (Scalar::Util::looks_like_number($_)? $_ : '"'._escape_str($_).'"')
+	: ref $_ eq 'ARRAY'? '['.join(', ', map _dump, @$_).']'
+	: ref $_ eq 'HASH'? do {
+		my $hash= $_;
+		'{'.join(', ', map {
+			($_ =~ /^\w+\z/? $_ : '"'._escape_str($_).'"')
+			.' => '._dump($hash->{$_})
+		} sort keys %$hash).'}';
+	}
+	: "$_"
 }
 sub _parse_context {
 	return '"' . _escape_str(substr($_, defined $_[0]? $_[0] : pos, 10)) .'"';
