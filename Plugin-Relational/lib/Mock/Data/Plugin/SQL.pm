@@ -1,17 +1,21 @@
 package Mock::Data::Plugin::SQL;
-use Exporter::Extensible -exporter_setup => 1;
+use Mock::Data::Plugin -exporter_setup => 1;
+use Mock::Data::Plugin::Net qw( cidr macaddr ), 'ipv4', { -as => 'inet' };
+use Mock::Data::Plugin::Number qw( integer decimal float sequence uuid byte );
+use Mock::Data::Plugin::Text join => { -as => 'text_join' };
 my @generator_methods= qw(
-	tinyint smallint bigint
-	serial smallserial bigserial
-	numeric
-	float4 real float8 double double_precision
+	integer tinyint smallint bigint
+	sequence serial smallserial bigserial
+	numeric decimal
+	float float4 real float8 double double_precision
 	bit bool boolean
 	varchar char nvarchar
 	text tinytext mediumtext longtext ntext
-	blob tinyblob mediumblob longblob
+	blob tinyblob mediumblob longblob bytea
 	varbinary binary
 	date datetime timestamp
-	json jsonb inet cidr macaddr
+	json jsonb
+	uuid inet cidr macaddr
 );
 export(@generator_methods);
 
@@ -50,7 +54,7 @@ inserting into a column of that type.
 
 sub apply_mockdata_plugin {
 	my ($class, $mock)= @_;
-	$mock->load_plugin('Number','Text')->add_generators(
+	$mock->load_plugin('Text')->add_generators(
 		map +("SQL::$_" => $class->can($_)), @generator_methods
 	);
 }
@@ -80,19 +84,19 @@ Alias for C<< integer({ bits => 63 }) >>.
 sub tinyint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	$mock->call(integer => { $params? %$params : (), bits => 8 }, @_);
+	integer($mock, { $params? %$params : (), bits => 8 }, @_);
 }
 
 sub smallint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	$mock->call(integer => { $params? %$params : (), bits => 16 }, @_);
+	integer($mock, { $params? %$params : (), bits => 16 }, @_);
 }
 
 sub bigint {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	$mock->call(integer => { $params? %$params : (), bits => 64 }, @_);
+	integer($mock, { $params? %$params : (), bits => 64 }, @_);
 }
 
 =head3 sequence
@@ -113,11 +117,7 @@ Alias for sequence
 
 =cut
 
-sub serial {
-	my $mock= shift;
-	$mock->call(sequence => @_);
-}
-BEGIN { *bigserial= *smallserial= *serial; }
+BEGIN { *bigserial= *smallserial= *serial= *sequence; }
 
 =head3 decimal
 
@@ -129,10 +129,7 @@ Alias for C<decimal>.
 
 =cut
 
-sub numeric {
-	my $mock= shift;
-	$mock->call(decimal => @_);
-}
+BEGIN { *numeric= *decimal; }
 
 =head3 float
 
@@ -148,17 +145,12 @@ Aliases for C<< float({ size => 15 }) >>
 
 =cut
 
-sub float4 {
-	my $mock= shift;
-	$mock->call(float => @_);
-}
-
-BEGIN { *real= *float4; }
+BEGIN { *real= *float4= *float; }
 
 sub double {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	$mock->call(float => { bits => 52, $params? %$params : () }, @_);
+	float($mock, { bits => 53, $params? %$params : () }, @_);
 }
 
 BEGIN { *float8= *double_precision= *double; }
@@ -207,7 +199,7 @@ sub varchar {
 	my $source= ($params? $params->{source} : undef) // 'word';
 	my $source_gen= ref $source? $source : $mock->generators->{$source}
 		// Carp::croak("No generator '$source' available");
-	return $mock->call('Text::join', { source => $source_gen, max_len => $size, len => int rand $size });
+	return text_join($mock, { source => $source_gen, max_len => $size, len => int rand $size });
 }
 
 BEGIN { *nvarchar= *varchar; }
@@ -279,6 +271,7 @@ sub _iso8601_to_epoch {
 	require POSIX;
 	return POSIX::mktime($6||0, $5||0, $4||0, $3, $2-1, $1-1900);
 }
+
 sub datetime {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
@@ -299,7 +292,8 @@ BEGIN { *timestamp= *datetime; }
 
 =head3 tinyblob, mediumblob, longblob, bytea, binary, varbinary
 
-Aliases for C<blob>.  String lengths are not increased, because it would just slow things down.
+Aliases for C<blob>.  None of these change the default string length, because longer strings
+of data would just slow things down.
 
 =cut
 
@@ -307,7 +301,7 @@ sub blob {
 	my $mock= shift;
 	my $params= ref $_[0] eq 'HASH'? shift : undef;
 	my $size= shift // ($params? $params->{size} : undef) // 256;
-	$mock->call(byte => $size);
+	byte($mock, $size);
 }
 
 BEGIN { *tinyblob= *mediumblob= *longblob= *bytea= *binary= *varbinary= *blob; }
@@ -348,37 +342,16 @@ BEGIN { *jsonb= *json; }
 
 =head3 inet
 
-Return a random IP address within C<< 127.0.0.0/8 >>, excluding .0 and .255
-
-=cut
-
-sub inet {
-	sprintf "127.%d.%d.%d", rand 256, rand 256, 1+rand 254;
-}
+See L<Mock::Data::Plugin::Net/ipv4>
 
 =head3 cidr
 
-Return a random CIDR starting with C<< 127. >> like C<< 127.0.42.0/24 >>
-
-=cut
-
-sub cidr {
-	my $blank= 1 + int rand 23;
-	my $val= (int rand(1<<(24 - $blank))) << $blank;
-	sprintf '127.%d.%d.%d/%d', (unpack 'C4', pack 'N', $val)[1,2,3], 32 - $blank;
-}
+See L<Mock::Data::Plugin::Net/cidr>
 
 =head3 macaddr
 
-Return a random ethernet MAC in XX:XX:XX:XX:XX:XX format, taken from the Locally Administered
-Address Ranges.
+See L<Mock::Data::Plugin::Net/macaddr>
 
 =cut
-
-sub macaddr {
-	sprintf '%02x:%02x:%02x:%02x:%02x:%02x',
-		((rand 64)<<2) | 0x02, rand 256, rand 256,
-		rand 256, rand 256, rand 256
-}
 
 1;
