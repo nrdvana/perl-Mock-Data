@@ -393,7 +393,8 @@ reference for each function.
 =cut
 
 sub import {
-	Mock::Data::Util->export_to_level(1, @_);
+	shift;
+	Mock::Data::Util->import_into(scalar caller, @_);
 }
 
 require Mock::Data::Util;

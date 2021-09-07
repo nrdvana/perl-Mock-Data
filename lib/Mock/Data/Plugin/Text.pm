@@ -1,14 +1,10 @@
 package Mock::Data::Plugin::Text;
-use strict;
-use warnings;
-use Carp;
-our @CARP_NOT= qw( Mock::Data Mock::Data::Util );
-use Scalar::Util 'blessed';
+use Mock::Data::Plugin -exporter_setup => 1;
 use Mock::Data::Charset;
 use Mock::Data::Util 'coerce_generator';
-require Exporter;
-our @ISA= qw( Exporter );
-our @EXPORT_OK= qw( word words lorem_ipsum join );
+use Scalar::Util 'blessed';
+use Carp;
+our @CARP_NOT= qw( Mock::Data Mock::Data::Util );
 
 # ABSTRACT: Mock::Data plugin that provides text-related generators
 # VERSION
@@ -33,10 +29,17 @@ multiple languages in the future.
 
 =cut
 
-our $word_generator;
+our $word_generator= Mock::Data::Charset->new(
+	notation => 'a-z',
+	str_len => sub { 1 + int(rand 3 + rand 3 + rand 4) }
+);
+*word= $word_generator->compile;
+
+export(qw( word words lorem_ipsum join ));
+
 sub apply_mockdata_plugin {
-	my ($class, $mockdata)= @_;
-	$mockdata->add_generators(
+	my ($class, $mock)= @_;
+	$mock->add_generators(
 		'Text::join'        => \&join,
 		'Text::word'        => $word_generator,
 		'Text::words'       => \&words,
@@ -128,12 +131,6 @@ It takes the same named options as L</join>, but if a positional parameter is gi
 specifies C<$len> and C<$max_len>.
 
 =cut
-
-$word_generator= Mock::Data::Charset->new(
-	notation => 'a-z',
-	str_len => sub { 1 + int(rand 3 + rand 3 + rand 4) }
-);
-*word= $word_generator->compile;
 
 sub words {
 	my $mockdata= shift;

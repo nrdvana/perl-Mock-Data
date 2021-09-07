@@ -1,13 +1,11 @@
 package Mock::Data::Util;
-use strict;
-use warnings;
+use Exporter::Extensible -exporter_setup => 1;
+export(qw(
+	uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
+	charset template _parse_context _escape_str
+));
 require Carp;
 our @CARP_NOT= qw( Mock::Data Mock::Data::Generator );
-require Exporter;
-our @ISA= qw( Exporter );
-our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator mock_data_subclass
-	charset template _parse_context _escape_str
-);
 
 # ABSTRACT: Exportable functions to assist with declaring mock data
 # VERSION
@@ -20,6 +18,8 @@ our @EXPORT_OK= qw( uniform_set weighted_set inflate_template coerce_generator m
     inflate_template
     coerce_generator
     mock_data_subclass
+    charset
+    template
   /;
 
 =head1 DESCRIPTION
