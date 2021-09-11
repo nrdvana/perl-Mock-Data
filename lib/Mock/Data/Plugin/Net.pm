@@ -19,7 +19,7 @@ and private MAC addresses.  Patches welcome for additional features.
 
 sub apply_mockdata_plugin {
 	my ($class, $mock)= @_;
-	$mock->apply_generators(
+	$mock->add_generators(
 		map +("Net::$_" => $class->can($_)), @generators
 	);
 }
