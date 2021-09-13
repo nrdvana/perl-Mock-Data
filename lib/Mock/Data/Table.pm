@@ -5,6 +5,7 @@ use Carp 'croak';
 use Scalar::Util;
 use List::Util;
 use Mock::Data::Util 'coerce_generator';
+require Mock::Data::Plugin::Table::TableData;
 require Mock::Data::Generator;
 our @ISA= ( 'Mock::Data::Generator' );
 
@@ -114,7 +115,7 @@ sub new {
 			}
 		}
 		elsif ($rel->{rel}) {
-			defined $rels{$rel->{rel}}
+			defined $attrs->{relationships}{$rel->{rel}}
 				or croak "Relationship $rel->{name} refers to non-existent relationship $rel->{rel}";
 		}
 		else {
@@ -743,7 +744,7 @@ called and no related rows are created or checked for.
 
 sub _generate {
 	my ($self, $params, $rows)= @_;
-	my ($mock, $store, $via_relationship)= @{$params}[qw( mock store via_relationship )];
+	my ($mock, $store, $via_relationship)= @{$params}{qw( mock store via_relationship )};
 	my $cols= $self->columns;
 	my @rels= values %{ $self->relationships };
 	my $keys= $self->_key_search_seq;
@@ -766,7 +767,7 @@ sub _generate {
 		# Iterate relationships, extracting their seed-values from the $row, and generating
 		# any foreign key dependencies.
 		my %related_rows;
-		for my $rel (values %$rels) {
+		for my $rel (@rels) {
 			my $rname= $rel->{name};
 			my $peer= $mock->generators->{"Table::$rel->{peer}"}
 				or croak "Table '$rel->{peer}' neded by relationship '$self->{name}.$rname' does not exist in \$mock->generators";
@@ -794,8 +795,8 @@ sub _generate {
 				$related_rows{$rname}= $rrows= [ $rrows ] if ref $rrows eq 'HASH';
 				@$rrows == 1 or croak "Must specify exactly one foreign row for relationship $rname";
 				# Does the row have the foreign key in it?  Call generate if not.
-				$peer->_generate($params, $rrows, [$self, $row, $rel] )
-					unless List::Util::all defined $rrows[0]{$_}, @{$rel->{peer_cols}};
+				$peer->_generate($params, $rrows, [$self, $row, $rel])
+					unless List::Util::all { defined $rrows->[0]{$_} } @{$rel->{peer_cols}};
 				# Copy it from the remote row to current row
 				_set_row_cols_from_peer($row, $rel, $rrows->[0]);
 			}
@@ -816,10 +817,11 @@ sub _generate {
 		if ($params->{multi_table}) {
 			...
 		}
+		$store->create_row($self, $row);
 		push @ret, $row;
 
 		# Now create all related rows that depend on this record
-		for my $rel (values %$rels) {
+		for my $rel (@rels) {
 			my $rname= $rel->{name};
 			my $peer= $mock->generators->{"Table::$rel->{peer}"};
 			my $rrows= $related_rows{$rname};
@@ -839,7 +841,7 @@ sub _generate {
 					$rrows= [ $rrows ] if ref $rrows eq 'HASH';
 					@$rrows == 1 or croak "Must specify exactly one foreign row for relationship $rname";
 					# copy key from this row to that row
-					_set_peer_cols_from_row($rrows[0], $rel, $row);
+					_set_peer_cols_from_row($rrows->[0], $rel, $row);
 					$rrows= $peer->_generate({ %$params, find => 1, via_relationship => [$self, $row, $rel] }, $rrows);
 					$row->{$rname}= $rrows->[0]
 						unless $params->{multi_table};
@@ -872,7 +874,7 @@ sub _generate {
 					$rrows= [ $rrows ] if ref $rrows eq 'HASH';
 					@$rrows == 1 or croak "Must specify exactly one foreign row for relationship $rname";
 					# copy key from this row to that row
-					_set_peer_cols_from_row($rrows[0], $rel, $row);
+					_set_peer_cols_from_row($rrows->[0], $rel, $row);
 					$rrows= $peer->_generate({ %$params, find => 1, via_relationship => [$self, $row, $rel] }, $rrows);
 					$row->{$rname}= $rrows->[0]
 						unless $params->{multi_table};
@@ -892,34 +894,35 @@ sub _generate {
 sub _coerce_store {
 	my ($store, $mock)= @_;
 	# default to a cache inside Mock::Data instance
-	return $mock->generator_state->{'Relational::TableData'}
-			//= Mock::Data::Plugin::Relational::TableData->new()
+	return $mock->generator_state->{'Table::data'}
+			//= Mock::Data::Plugin::Table::TableData->new()
 		unless defined $store;
 	return $store
-		if blessed($store) && $store->isa('Mock::Data::Plugin::Relational::TableData');
-	return Mock::Data::Plugin::Relational::TableData->new($store);
+		if blessed($store) && $store->isa('Mock::Data::Plugin::Table::TableData');
+	return Mock::Data::Plugin::Table::TableData->new($store);
 }
 
 sub _set_peer_cols_from_row {
 	my ($peer, $rel, $row)= @_;
 	my @cols= @{$row}[@{$rel->{cols}}];
-	unless (List::Util::all defined, @cols) {
+	unless (List::Util::all { defined } @cols) {
 		my $link_msg= @{$rel->{cols}} == 1? $rel->{cols}[0]
 			: '('.join(',', map "$_=".($row->{$_}//'NULL'), @{$rel->{cols}}).')';
 		croak "Can't relate row.$rel->{name} => $rel->{peer} on NULL column: ".$link_msg;
 	}
-	@{$peer}[@{$rel->{peer_cols}]= @cols;
+	@{$peer}[@{$rel->{peer_cols}}]= @cols;
 }
 
 sub _set_row_cols_from_peer {
 	my ($row, $rel, $peer)= @_;
-	my @pcols= @{$peer}[@{$rel->{peer_cols}];
-	unless (List::Util::all defined, @pcols) {
+	my @pcols= @{$peer}[@{$rel->{peer_cols}}];
+	unless (List::Util::all { defined } @pcols) {
 		my $link_msg= @{$rel->{peer_cols}} == 1? $rel->{peer_cols}[0]
 			: '('.join(',', map "$_=".($peer->{$_}//'NULL'), @{$rel->{peer_cols}}).')';
 		croak "Can't relate row.$rel->{name} <= $rel->{peer} on NULL column: ".$link_msg;
 	}
-	@{$row}[@{$rel->{cols}]= @pcols;
+	@{$row}[@{$rel->{cols}}]= @pcols;
 }
 
-delete *croak; # clean up namespace
+no Carp 'croak'; # clean up namespace
+1;

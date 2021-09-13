@@ -45,7 +45,7 @@ If L</write_db> is set, this first writes it to the database, then caches the ro
 
 sub create_row {
 	my ($self, $table, $row)= @_;
-	my $table_cache= $self->{cache}{$table->name};
+	my $table_cache= $self->{cache}{$table->name} //= {};
 	my $cols= ref $row eq 'HASH'? $row : { $row->get_columns };
 	for my $key (@{ $table->_key_search_seq }) {
 		my $kv= join "\0", grep defined || next, @{$cols}{@{$key->{cols}}};
@@ -74,7 +74,7 @@ sub create_row {
 =cut
 
 sub find_or_create {
-	my ($self, $table, $row)= @_;
+	my ($self, $table, $cols)= @_;
 	return $self->find_rows($table, $cols, grep $_->{unique}, @{ $table->_key_search_seq })
 		// $self->create_row($table, $cols);
 }

@@ -1,7 +1,5 @@
-package Mock::Data::Relational;
-use strict;
-use warnings;
-use Carp;
+package Mock::Data::Plugin::Relational;
+use Mock::Data::Plugin -exporter_setup => 1;
 use Mock::Data::Plugin::Relational::Table;
 use Mock::Data qw/ mock_data_subclass /;
 
@@ -13,15 +11,15 @@ use Mock::Data qw/ mock_data_subclass /;
 This L<Mock::Data> plugin supplies a collection of generators that help create
 data which matches a relational schema.
 
-This primary purpose is for unit tests, to help you fill complicated schemas
+The primary purpose is for unit tests, to help you fill complicated schemas
 where you only want to declare the few fields that are relevant to the test,
 but the schema requires many more not-null fields to have values in order to
 conduct the test.
 
-  my $mockdata= Mock::Data->new([qw/ Relational ... /])->new;
+  my $mock= Mock::Data->new([qw/ Relational ... /]);
   
   # Define relational schema
-  $mockdata->declare_schema(
+  $mock->declare_tables(
     # you can import a whole DBIC schema
     $dbic_schema,
     
@@ -45,7 +43,7 @@ conduct the test.
   );
   
   # Optionally define static data
-  $mockdata->declare_reldata(
+  $mock->populate_tables(
     artist => [
       { name => 'Disaster Area', albumns => [ { ... }, { ... } ] }
     ]
@@ -54,10 +52,11 @@ conduct the test.
   # Then:
   
   # generate one table
-  my $artist_array= $mockdata->reldata({ rows => 10 }, 'artist');
+  my $artist_array= $mock->artist(10);
+  my $album_array= $mock->table('album',10);
   
   # generate multiple tables ( returns ->{artist} and ->{album} )
-  my $table_data= $mockdata->reldata({ rows => { artist => 10 } });
+  my $table_data= $mock->tables({ rows => { artist => 10 } });
 
 =head1 DESCRIPTION
 
@@ -67,30 +66,30 @@ an empty database before each unit test.  The primary problem with that approach
 is that the test cases end up depending on many details of that test data and the
 details are not visible or explained directly in the code of the unit test.
 A maintenance developer seeing the project for the first time must then become
-familiar with all the details of that test data set, and in a large project, the
+familiar with all the details of that test data set, and in a large project the
 test data may become fairly large.  It also becomes a large maintenance burden to
-keep the test data up to date, along with all the unit tests that depend on it.
+keep the test data up to date along with all the unit tests that depend on it.
 
 The purpose of this module is to make it easier to declare data in the unit
 test so that you can keep the unit test self-contained.  Consider the following
 generic example as it might be written with an external data set:
 
   use MyTestUtils 'my_populate_dataset1';
-  my_populate_dataset1($schema);
+  my_populate_dataset1($db);
   
-  my $record= $schema->resultset("X")->find({ name => 'Foo1' });
+  my $record= $db->resultset("X")->find({ name => 'Foo1' });
   $record->interesting_method;
-  my $n= $schema->resultset("Y")->search({ parent_id => 1 })->count;
+  my $n= $db->resultset("Y")->search({ parent_id => 1 })->count;
   is( $n, 3, 'parent 1 now has 3 Y records' );
 
-Here, to understand the test case, you must go research dataset1 to find out
-about the data of the row where C<< name = "Foo1" >>, and what C<parent_id> of
-1 means.  Now consider the readability when declaring data within the unit test
+What is special about the X record named "Foo1"? What is the significance of
+parent_id of 1?  To understand the test case you must go research dataset1 to
+find out.  Now consider the readability when declaring data within the unit test
 itself:
 
   use MyTestUtils 'my_populate_data';
   my_populate_data(
-    $schema,
+    $db,
     A => [
       { id => 1 },
     ],
@@ -102,9 +101,9 @@ itself:
     ]
   );
   
-  my $record= $schema->resultset("X")->find({ name => 'Foo1' });
+  my $record= $db->resultset("X")->find({ name => 'Foo1' });
   $record->interesting_method;
-  my $n= $schema->resultset("Y")->search({ parent_id => 1 })->count;
+  my $n= $db->resultset("Y")->search({ parent_id => 1 })->count;
   is( $n, 3, 'parent 1 now has 3 Y records' );
 
 Now you can clearly see that X relates to A, and Y relates to A, and there was
@@ -119,19 +118,23 @@ this tiny bit of data you'd have to specify dozens of other fields and records,
 making an unreadable mess of details.
 
 This module solves that problem by generating mock data to fill in all the
-blanks around the data you care about.
+blanks around the data you care about.  You can implement the above example
+using this module as simply as:
+
+  sub my_populate_data {
+    my ($db, @table_init)= @_;
+    my $mock= Mock::Data->new(['Relational']);
+    $mock->declare_tables($db); # assuming DBIx::Class::Schema object
+    $mock->populate_tables({ store => $db }, @table_init);
+  }
 
 =cut
 
 # Plugin main method, which applies plugin to a Mock::Data instance
 sub apply_mockdata_plugin {
-	my ($class, $mockdata)= @_;
-	$mockdata->add_generators({
-		table   => \&table,
-		reldata => \&reldata,
-		auto_increment => \&auto_increment,
-	});
-	return mock_data_subclass($mockdata, 'Mock::Data::Plugin::Relational::Methods');
+	my ($class, $mock)= @_;
+	mock_data_subclass($mock, 'Mock::Data::Plugin::Relational::Methods')
+		->add_generators(map +("Relational::$_" => $class->can($_)), qw( table tables ));
 }
 
 =head1 GENERATORS
@@ -140,142 +143,69 @@ This plugin adds the following generators to the L<Mock::Data> instance:
 
 =head2 table
 
-  $rows= $mockdata->table( \%options );
-  $rows= $mockdata->table( $name );
-  $rows= $mockdata->table( $name, $rows );
-  $rows= $mockdata->table( $name, $count );
+  $rows= $mock->table( \%options );
+  $rows= $mock->table( $name );
+  $rows= $mock->table( $name, $rows );
+  $rows= $mock->table( $name, $count );
 
-This function returns one table of data, as an arrayref.  Each element of the arrayref
-is a hashref, where the fields are defined either from named arguments to the generator,
-or by a pre-declared schema.
+This function runs C<generate> on one of the previously-defined tables
+(from L</declare_tables>).  The name of the table can either be given as the first
+positional parameter, or as 'name' within C<%options>.
 
-The following named options can be given:
-
-=over
-
-=item C<name>
-
-The name of the pre-declared table to use.  This is required unless you specify the fields
-directly.
-
-=item C<fields>
-
-An arrayref or hashref of field or definitions.
-See L<Mock::Data::Plugin::Relational::Table/fields> for a description of a field,
-or L<Mock::Data::Plugin::Relational::Table/coerce_field> for the different shorthand
-notations you can use.
-
-These elements may contain relationship shorthand notation, and will be automatically
-sorted into that category.
-
-=item C<relationships>
-
-An arrayref or hashref of relationships to other tables.
-See L<Mock::Data::Plugin::Relational::Table/relationships> for a description of a relationship,
-or L<Mock::Data::Plugin::Relational::Table/coerce_relationship> for the different shorthand
-notations you can use.
-
-=item C<keys>
-
-An arrayref or hashref of keys which can be used to identify distinctness of rows.
-See L<Mock::Data::Plugin::Relational::Table/keys> for a description of a key,
-or L<Mock::Data::Plugin::Relational::Table/coerce_key> for the different shorthand
-notations you can use.
-
-=item C<rows>
-
-An arrayref of row hashrefs.  Each will be used as a template of literal values around which
-the rest of the missing fields will be inserted.
-
-=item C<find>
-
-Boolean, whether to return existing rows when one of C<rows> specifies a unique key that
-was already generated.  If this is false (the default) and the row has a conflictig unique
-key, it will result in an exception.
-
-=item C<count>
-
-The number of rows to generate.  Defaults to 1.  This cannot be given with C<rows>.
-
-=item C<via_relationship>
-
-  via_relationship => [ $table, $row, $rel_name ]
-
-This describes a row of another table and a relationship that is being followed in order to
-produce these rows.  The generated rows may receive additional default values from the original
-row according to the columns of the relationship.
-
-=back
-
-If a first positional argument is present, it is treated as C<fields> if it is a hashref
-or arrayref, or C<name> if it is a scalar.
-
-If a second positional argument is present, it is treated as C<rows> if it is an arrayref,
-or C<count> if it is a scalar.
-
-Examples:
-
-  # generate one table, returning array of 10 records of the form
-  # {
-  #   name => $mockdata->words({size => 99}),
-  #   value => $mockdata->integer({size => 4})
-  # }
-  $name_value_array= $mockdata->table({
-    columns => [
-      name => { mock => '{words 64}' },
-      value => { type => 'numeric(4,0)' },
-    ],
-    count => 10
-  });
-
-  # If the relation was pre-declared as "name_val", you can reference it:
-  $name_value_array= $mockdata->table({ count => 10 }, 'name_val' );
+See L<Mock::Data::Plugin::Relational::Table/generate> for details.
 
 =cut
 
 sub table {
-	my $mockdata= shift;
-	my $named_args= shift if ref $_[0] eq 'HASH';
-	my $name= shift;
-	my ($rows, $count)= !@_? (undef,undef) : ref $_[0]? (shift, undef) : (undef, shift);
-	my $table;
+	my $mock= shift;
+	my $params= ref $_[0] eq 'HASH'? shift : undef;
+	my $name= shift // ($params && delete $params->{name});
+	
+	defined $name
+		or Carp::croak("'name' of table is required");
+	my $table= $mock->generators->{'Table::'.$name}
+		or Carp::croak("No declared table '$name'");
 
-	# Fetch or construct the table specification
-	if (defined $named_args && $named_args->{columns}) {
-		my %tbl_ctor= %$named_args;
-		delete @tbl_ctor{qw/ rows count find via_relationship /};
-		$tbl_ctor{name} ||= 1; # not saving the table, just need to have any name
-		$table= Mock::Data::Plugin::Relational::Table->new(%tbl_ctor);
-	}
-	elsif (defined $name) {
-		$table= $mockdata->generators->{'table_'.$name}
-			or croak "No declared table '$name'";
-	} else {
-		croak "Require 'name' or 'columns' in order to define the table";
-	}
-
-	# Create or fill-in the rows requested
-	if ($rows) {
-		return $table->generate($mockdata, { rows => $rows, %$named_args });
-	} else {
-		$count= 1 unless defined $count;
-		return $table->generate($mockdata, { count => $count, %$named_args });
-	}
+	$table->generate($mock, ($params? $params : ()), @_);
 }
 
 =head2 tables
 
-  $table_set= $mockdata->tables( \%named_args, $name => $rows_or_count, ... )
+  $batches= $mock->tables( \%options, $name => $rows_or_count, ... );
+  
+  # [
+  #   { name => $name, rows => \@rows, update => \@updates },
+  #   ...
+  # ]
 
-Return multiple tables of data, in a hashref by table name.
+Return multiple tables of data, grouped in batches in the order that they should be inserted.
+If the schema contains circular references (such as "the userid who last updated this user row")
+the rows will be sorted in an order that allows those to insert cleanly, unless there is a
+circular dependency in which case the C<@updates> are used to patch-up the records afterward.
+C<@updates> are each a hashref of a partial row, containing the fields for the primary key and
+the fields that need to be updated.  You can apply this using DBIC's
+C<< $rs->find($row)->update($row) for @updates >>.  Also note that more than one batch may
+occur for the same table.
 
-The named arguments can contain the following:
+Available C<%options>:
 
 =over
 
-=item schema
+=item C<store>
 
-A hashref of table name to table specification, each matching the description in L</table>.
+An instance of L<Mock::Data::Plugin::Relational::RowCache> (or hashref of constructor
+parameters for one) or instance of L<DBIx::Class::Schema> where generated rows should be
+cached/stored, and which should be consulted any time the algorithm wants to find an existing
+record by some key.
+
+If not specified, a default RowCache is created within the C<Mock::Data> instance.
+
+=item C<as_objects>
+
+If you reference a C<DBIx::Class::Schema> in C<store>, then C<DBIx::Class> row objects are
+getting created as this method runs.  Set this option to true to return those row objects
+instead of the hashrefs that would normally be returned.  It is an error to ask for row objects
+unless a C<DBIx::Class::Schema> was provided.
 
 =back
 
@@ -450,11 +380,11 @@ $INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
 
 =head2 declare_schema
 
-  $mockdata->declare_schema($dbic_schema, ...);
-  $mockdata->declare_schema($dbic_source, ...);
-  $mockdata->declare_schema(\%table_attributes, ...);
-  $mockdata->declare_schema($table_name => \%table_attributes, ...);
-  $mockdata->declare_schema($table_name => \@column_list, ...);
+  $mock->declare_schema($dbic_schema, ...);
+  $mock->declare_schema($dbic_source, ...);
+  $mock->declare_schema(\%table_attributes, ...);
+  $mock->declare_schema($table_name => \%table_attributes, ...);
+  $mock->declare_schema($table_name => \@column_list, ...);
 
 Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
 objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
@@ -462,8 +392,11 @@ import a single table, a hashref is used as the direct constructor arguments for
 L<Mock::Data::Plugin::Relational::Table>, and a scalar followed by an array or hashref are considered
 to be a table name and its column specification.
 
-The table name must be unique, unless you pass the option C<< replace => 1 >>; attempts to
-define a table twice without that flag will throw an exception,
+The table name must be unique.  If you wish to replace a table, prefix the table name with
+a C<'-'> or add C<< replace => 1 >> to the table attribute hash.
+
+  $schema->declare( -Artist => $new_definition );
+
 
 =cut
 
@@ -473,10 +406,11 @@ sub Mock::Data::Plugin::Relational::Methods::declare_schema {
 		my $thing= shift;
 		my %ctor;
 		if (!ref $thing) {
+			my $replace= ($thing =~ s/^-//);
 			if (ref $_[0] eq 'ARRAY') {
-				%ctor= ( name => $thing, columns => shift );
+				%ctor= ( name => $thing, columns => shift, replace => $replace );
 			} elsif (ref $_[0] eq 'HASH') {
-				%ctor= ( name => $thing, %{+shift} );
+				%ctor= ( name => $thing, %{+shift}, replace => $replace );
 			} else {
 				croak "Expected column arrayref or attribute hashref following '$thing' (got $_[0])";
 			}
@@ -497,7 +431,7 @@ sub Mock::Data::Plugin::Relational::Methods::declare_schema {
 		
 		my $replace= delete $ctor{replace};
 		my $table= Mock::Data::Plugin::Relational::Table->new(\%ctor);
-		my $gen_name= 'table_'.$table->name;
+		my $gen_name= 'Relation::'.$table->name;
 		croak "Table generator '$gen_name' was already defined"
 			if $self->generators->{$gen_name} && !$replace;
 		$self->generators->{$gen_name}= $table;
@@ -563,10 +497,10 @@ sub default_generator_for_column {
 	return undef;
 }
 
-=head2 populate
+=head2 populate_schema
 
-  $reldata->populate(table1 => [ \%record1, \%record2, ... ], ...);
-  $reldata->populate(table1 => [ \@columns, \@record1, \@record2 ], ...);
+  $reldata->populate_schema(table1 => [ \%record1, \%record2, ... ], ...);
+  $reldata->populate_schema(table1 => [ \@columns, \@record1, \@record2 ], ...);
 
 Like L<DBIx::Class::ResultSource/populate>, this adds rows to tables (in memory).
 The records can either be specified as an array of hashrefs, or as an array of arrayrefs where
