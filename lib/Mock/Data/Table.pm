@@ -655,7 +655,7 @@ sub generate {
 	$mock->isa('Mock::Data') or croak "First argument must be Mock::Data";
 	my %opts= ref $_[0] eq 'HASH'? %{shift()} : ();
 	my @rows= ref $_[0] eq 'ARRAY'? @{$_[0]} : $opts{rows}? @{$opts{rows}} : ();
-	my $count= defined $_[0] && !ref $_[0]? $_[0] : $opts{count} // 1;
+	my $count= defined $_[0] && !ref $_[0]? shift : $opts{count} // 1;
 	croak "Unexpected parameter '$_[0]'" if @_;
 	$opts{mock}= $mock;
 	$opts{store}= _coerce_store($opts{store}, $mock);

@@ -1,6 +1,7 @@
-package Mock::Data::Plugin::Relational;
+package Mock::Data::Plugin::Table;
 use Mock::Data::Plugin -exporter_setup => 1;
-use Mock::Data::Plugin::Relational::Table;
+use Carp;
+use Mock::Data::Table;
 use Mock::Data qw/ mock_data_subclass /;
 
 # ABSTRACT: Mock::Data plugin that generates relational tables of data
@@ -133,7 +134,7 @@ using this module as simply as:
 # Plugin main method, which applies plugin to a Mock::Data instance
 sub apply_mockdata_plugin {
 	my ($class, $mock)= @_;
-	mock_data_subclass($mock, 'Mock::Data::Plugin::Relational::Methods')
+	mock_data_subclass($mock, 'Mock::Data::Plugin::Table::Methods')
 		->add_generators(map +("Relational::$_" => $class->can($_)), qw( table tables ));
 }
 
@@ -219,25 +220,9 @@ sub tables {
 	
 }
 
-=head2 auto_increment
-
-  $next_id= $mockdata->auto_increment({ table => $table_instance })
-
-This generator returns the next value in a sequence.  The sequence is maintained per-table,
-and a named argument of 'table' must be supplied, and it must be a
-L<Table generator|Mock::Data::Plugin::Relational::Table>.  (The Table generator automatically passes
-itself as this argument when calling auto_increment)
-
-=cut
-
-sub auto_increment {
-	my ($mockdata, $args)= @_;
-	$args->{table}->auto_increment($args);
-}
-
 =head2 auto_unique
 
-  $random_id= $mockdata->auto_unique({ table => $table_instance, column => \%col_info })
+  $random_id= $mock->auto_unique({ table => $table_instance, column => \%col_info })
 
 This generator returns some random value appropriate for the column which is unique from any
 other that has been generated for this column of this table.  The type of the data generated
@@ -375,8 +360,12 @@ The following methods are added to the Mock::Data instance when using this plugi
 =cut
 
 # Methods are defined in this file
-@Mock::Data::Plugin::Relational::Methods::ISA= ( 'Mock::Data' );
-$INC{'Mock/Data/Relational/Methods.pm'}= __FILE__;
+@Mock::Data::Plugin::Table::Methods::ISA= ( 'Mock::Data' );
+$INC{'Mock/Data/Plugin/Table/Methods.pm'}= __FILE__;
+*Mock::Data::Plugin::Table::Methods::declare_schema= *declare_schema;
+*Mock::Data::Plugin::Table::Methods::set_column_mock= *set_column_mock;
+*Mock::Data::Plugin::Table::Methods::table= *table;
+*Mock::Data::Plugin::Table::Methods::tables= *tables;
 
 =head2 declare_schema
 
@@ -397,41 +386,31 @@ a C<'-'> or add C<< replace => 1 >> to the table attribute hash.
 
   $schema->declare( -Artist => $new_definition );
 
-
 =cut
 
-sub Mock::Data::Plugin::Relational::Methods::declare_schema {
+sub declare_schema {
 	my $self= shift;
 	while (@_) {
 		my $thing= shift;
+		my $replace;
 		my %ctor;
-		if (!ref $thing) {
-			my $replace= ($thing =~ s/^-//);
+		if (!ref $thing) {  # thing was a name in the form ($thing => $value)
+			$replace= ($thing =~ s/^-//);
 			if (ref $_[0] eq 'ARRAY') {
-				%ctor= ( name => $thing, columns => shift, replace => $replace );
+				%ctor= ( columns => shift );
 			} elsif (ref $_[0] eq 'HASH') {
-				%ctor= ( name => $thing, %{+shift}, replace => $replace );
+				%ctor= %{+shift};
 			} else {
-				croak "Expected column arrayref or attribute hashref following '$thing' (got $_[0])";
+				%ctor= %{Mock::Data::Table::coerce_attributes(shift)};
 			}
-		}
-		elsif (ref $thing eq 'HASH') {
-			%ctor= ( %$thing );
-		}
-		elsif (ref($thing)->isa('DBIx::Class::Schema')) {
-			unshift @_, map +({ name => $_, dbic_source => $thing->source($_) }), $thing->sources;
-			next;
-		}
-		elsif (ref($thing)->isa('DBIx::Class::ResultSource')) {
-			%ctor= ( dbic_source => $thing );
+			$ctor{name}= $thing;
 		}
 		else {
-			croak "Don't know what to do with '$thing' (not a table name, hashref, or DBIC object)";
+			%ctor= %{Mock::Data::Table::coerce_attributes(shift)};
 		}
-		
-		my $replace= delete $ctor{replace};
-		my $table= Mock::Data::Plugin::Relational::Table->new(\%ctor);
-		my $gen_name= 'Relation::'.$table->name;
+		$replace ||= delete $ctor{replace};
+		my $table= Mock::Data::Table->new(\%ctor);
+		my $gen_name= 'Table::'.$table->name;
 		croak "Table generator '$gen_name' was already defined"
 			if $self->generators->{$gen_name} && !$replace;
 		$self->generators->{$gen_name}= $table;
@@ -456,7 +435,7 @@ just want to add the C<mock> attribute to the existing columns.  This method doe
 
 =cut
 
-sub Mock::Data::Plugin::Relational::Methods::set_column_mock {
+sub set_column_mock {
 	my $self= shift;
 	while (my ($table_name, $colmock)= splice @_, 0, 2) {
 		my $table= $self->tables->{$table_name} or croak "Table '$table_name' is not declared";
@@ -524,25 +503,6 @@ sub populate {
 		$table->populate(shift);
 	}
 	return @ret;
-}
-
-sub _dbic_rsrc_to_table_spec {
-	my $rsrc= shift; # DBIC ResultSource
-	return (
-		name => $rsrc->name,
-		column_order => [ $rsrc->columns ],
-		columns => $rsrc->columns_info,
-		primary_key => [ $rsrc->primary_columns ],
-		relations => {
-			map { $_ => _dbic_rel_to_relation_spec($rsrc->relationship_info($_)) }
-				$rsrc->relationships
-		},
-	);
-}
-
-sub _dbic_rel_to_relation_spec {
-	my $dbic_rel= shift;
-	$dbic_rel; # TODO
 }
 
 1;

@@ -177,4 +177,60 @@ subtest simple_rows => sub {
 	}
 };
 
+# Table with 2 unique keys and one non-unique key
+#{
+#	name => 'complex_keys',
+#	columns => [
+#		a => 'first',
+#		b => 'b-default',
+#		c => 'c-default',
+#	],
+#	keys => {
+#		primary => { cols => ['a'], unique => 1 },
+#		bc_key  => { cols => ['b','c'], unique => 1 },
+#		c_key   => { cols => ['c'] },
+#	},
+#	row_tests => [
+#		'empty row' => {
+#			row   => {},
+#			check => { a => 'first', b => 'b-default', c => 'c-default' },
+#			keys  => { primary => 'first', bc_key => "b-default\0c-default", c_key => 'c-default' },
+#		},
+#		'distinct row' => {
+#			row   => { a => 'second', b => 2, c => 2 },
+#			check => { a => 'second', b => 2, c => 2 },
+#			keys  => { primary => 'second', bc_key => "2\x002", c_key => '2' },
+#		},
+#		'dup of c' => {
+#			row   => { a => 'third', b => 3 },
+#			check => { a => 'third', b => 3, c => 'c-default' },
+#			keys  => { primary => 'third', bc_key => "3\0c-default", c_key => 'c-default' },
+#		},
+#		'NULL b value' => {
+#			row   => { a => 'fourth', b => undef, c => 3 },
+#			check => { a => 'fourth', b => undef, c => 3 },
+#			keys  => { primary => 'fourth', c_key => '3' },
+#		},
+#		'dup a value' => {
+#			row   => { b => 1, c => 1 },
+#			error => qr/duplicate.*?primary/,
+#		},
+#		'dup bc value' => {
+#			row   => { a => 2 },
+#			error => qr/duplicate.*?bc_key/,
+#		},
+#	],
+#	check => object {
+#		call rows => [
+#			hash { field a => 'first'; etc },
+#			hash { field a => 'second'; etc },
+#			hash { field a => 'third'; etc },
+#			hash { field a => 'fourth'; etc },
+#		];
+#		call [ find_rows => { a => 'third' } ] => hash { field b => 3; etc };
+#		call [ find_rows => { b => 2, c => 2 } ] => hash { field a => 'second'; etc };
+#	},
+#}
+
+
 done_testing;
