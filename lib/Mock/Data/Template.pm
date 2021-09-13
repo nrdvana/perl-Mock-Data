@@ -175,7 +175,7 @@ sub _parse_template {
 
 # Parse one of the curly-brace notations
 sub _parse_template_reference {
-	if (/\G\{(\w+)/gc) {
+	if (/\G\{([\w:]+)/gc) {
 		my $generator_name= $1;
 		my (@named_param, @pos_param);
 		if (/\G[ \t]+/gc) {
