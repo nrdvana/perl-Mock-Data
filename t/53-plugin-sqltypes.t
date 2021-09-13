@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 use Test2::V0;
 use Mock::Data::Util qw( _dump );
-use Mock::Data::Plugin::SQL;
+use Mock::Data::Plugin::SQLTypes;
 use Mock::Data;
 
 my $reps= $ENV{GENERATE_COUNT} || 5;
@@ -136,7 +136,7 @@ my @tests= (
 		[],                                      qr/^(?: [0-9a-f]{2} : ){5} [0-9a-f]{2} $/x,
 	],
 );
-my $mock= Mock::Data->new([qw( SQL )]);
+my $mock= Mock::Data->new([qw( SQLTypes )]);
 for (my $i= 0; $i < @tests; $i += 2) {
 	my ($generator, $subtests)= @tests[$i, $i+1];
 	subtest $generator => sub {

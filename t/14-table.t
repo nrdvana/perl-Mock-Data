@@ -1,12 +1,11 @@
 #! /usr/bin/env perl
 use Test2::V0;
-use Mock::Data::Plugin::Relational::Table;
+use Mock::Data::Table;
 
 =head1 DESCRIPTION
 
-This unit test checks the constructor and attributes of the Table
-objects.  It does not test the larger algorithms that happen through
-the table object.
+This unit test checks the constructor and attributes of the Table objects,
+and basic generation of rows.  It does not test the relational aspects.
 
 =cut
 
@@ -93,7 +92,7 @@ my @tests= (
 
 for (@tests) {
 	my ($spec, $expected)= @$_;
-	my $t= Mock::Data::Plugin::Relational::Table->new(@$spec);
+	my $t= Mock::Data::Table->new(@$spec);
 	is( $t, $expected, $t->name );
 }
 

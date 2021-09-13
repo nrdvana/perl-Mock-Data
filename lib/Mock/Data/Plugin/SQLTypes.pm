@@ -1,4 +1,4 @@
-package Mock::Data::Plugin::SQL;
+package Mock::Data::Plugin::SQLTypes;
 use Mock::Data::Plugin -exporter_setup => 1;
 use Mock::Data::Plugin::Net qw( cidr macaddr ), 'ipv4', { -as => 'inet' };
 use Mock::Data::Plugin::Number qw( integer decimal float sequence uuid byte );
