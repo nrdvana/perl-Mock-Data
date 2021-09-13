@@ -1,5 +1,8 @@
 #! /usr/bin/env perl
 use Test2::V0;
+use FindBin;
+use lib "$FindBin::RealBin/lib";
+use MockDBIxClass;
 use Mock::Data;
 use Mock::Data::Table;
 use Mock::Data::Plugin::Number 'sequence';
@@ -89,6 +92,29 @@ subtest constructor => sub {
 						   cols => ['a'], peer => 'x', peer_cols => ['id'] },
 				};
 				call keys => {};
+			}
+		],
+		[
+			[MockDBIxClass::ResultSource->new({
+				name => 'from_schema_ResultSource',
+				columns => [
+					id   => { data_type => 'integer', auto_increment => 1, is_nullable => 0 },
+					name => { data_type => 'varchar', size => 64 },
+					val  => { data_type => 'numeric', size => [8,2],       is_nullable => 1 },
+				],
+				keys => {
+				},
+				relationships => {
+				},
+			})],
+			object {
+				call name => 'from_schema_ResultSource';
+				call columns => {
+					id   => { name => 'id',   type => 'integer', auto_increment => 1,      idx => 0 },
+					name => { name => 'name', type => 'varchar', size => 64,               idx => 1 },
+					val  => { name => 'val',  type => 'numeric', size => [8,2], null => 1, idx => 2 },
+				};
+				call column_order => ['id','name','val'],
 			}
 		],
 	);

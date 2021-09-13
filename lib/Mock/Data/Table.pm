@@ -14,7 +14,7 @@ our @ISA= ( 'Mock::Data::Generator' );
 
 =head1 SYNOPSIS
 
-  my $table= Mock::Data::Plugin::Relational::Table->new({
+  my $table= Mock::Data::Table->new({
     name => 'Artist',
     columns => [
       { name => 'id', type => 'integer' },
@@ -26,10 +26,10 @@ our @ISA= ( 'Mock::Data::Generator' );
   });
   
   # generate rows
-  $rows= $table->generate($mock, { rows => 10 });
+  $rows= $table->generate($mock, 10);
   
   # find previously-generated rows
-  ($row1)= $table->find_rows($mock, { id => 1 });
+  $rows= $table->generate($mock, { find => 1, rows => [{ id => 1 }] });
 
 =head1 DESCRIPTION
 
@@ -261,7 +261,11 @@ shorthand notations described there and returns a hashref of official attributes
 
 sub coerce_attributes {
 	my $self= shift;
-	my $attrs= { @_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]} : @_ };
+	my $attrs= {
+		@_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]}
+		: @_ == 1 && Scalar::Util::blessed($_[0]) && $_[0]->isa('DBIx::Class::ResultSource')? ( dbic_source => $_[0] )
+		: @_
+	};
 	my $column_order= $attrs->{column_order};
 	my $dbic_source= delete $attrs->{dbic_source};
 	my %columns;
@@ -305,6 +309,7 @@ sub coerce_attributes {
 		}
 	}
 	elsif ($dbic_source) {
+		$attrs->{name} //= $dbic_source->name;
 		for my $colname ($dbic_source->columns) {
 			my $info= $dbic_source->column_info($colname);
 			$columns{$colname}= $self->coerce_column({ %$info });
@@ -486,7 +491,7 @@ sub coerce_column {
 		unless ref $spec eq 'HASH';
 	# Remap from DBIC names
 	$spec->{type}= delete $spec->{data_type} if defined $spec->{data_type};
-	$spec->{null}= delete $spec->{is_nullable} if defined $spec->{is_nullable};
+	$spec->{null}= 1 if delete $spec->{is_nullable};
 
 	# If type has parenthesees and size not given, split it
 	if ($spec->{type} && !defined $spec->{size} && $spec->{type} =~ /^([^(]+) \( (.+) \) $/x) {
