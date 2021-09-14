@@ -3,7 +3,7 @@ use Mock::Data::Plugin -exporter_setup => 1;
 use Mock::Data::Plugin::Net qw( cidr macaddr ), 'ipv4', { -as => 'inet' };
 use Mock::Data::Plugin::Number qw( integer decimal float sequence uuid byte );
 use Mock::Data::Plugin::Text join => { -as => 'text_join' };
-my @generator_methods= qw(
+our %type_generators= map +($_ => 1), qw(
 	integer tinyint smallint bigint
 	sequence serial smallserial bigserial
 	numeric decimal
@@ -13,11 +13,12 @@ my @generator_methods= qw(
 	text tinytext mediumtext longtext ntext
 	blob tinyblob mediumblob longblob bytea
 	varbinary binary
-	date datetime timestamp
+	date datetime datetime2 datetimeoffset timestamp
+	datetime_with_time_zone datetime_without_time_zone
 	json jsonb
 	uuid inet cidr macaddr
 );
-export(@generator_methods);
+export(qw( generator_for_column ), keys %type_generators);
 
 # ABSTRACT: Collection of generators that produce data matching a SQL column type
 # VERSION
@@ -55,11 +56,35 @@ inserting into a column of that type.
 sub apply_mockdata_plugin {
 	my ($class, $mock)= @_;
 	$mock->load_plugin('Text')->add_generators(
-		map +("SQL::$_" => $class->can($_)), @generator_methods
+		map +("SQL::$_" => $class->can($_)), keys %type_generators
 	);
 }
 
+=head1 EXPORTABLE FUNCTIONS
+
+=head2 generator_for_column
+
+Return an appropriate generator for a column.  If the column does not have a type, or if
+the type is not known, this returns a generator that returns '0' (which fits into most
+numeric and varchar type fields)
+
+=cut
+
+sub generator_for_column {
+	my $col= shift;
+	if (defined $col->{type}) {
+		(my $type= $col->{type}) =~ s/\W/_/g; # for 'datetime with time zone'
+		my $params= {};
+		$params->{size}= $col->{size} if defined $col->{size};
+		return Mock::Data::GeneratorSub->new(__PACKAGE__->can($type), keys %$params? ( $params ) : ())
+			if $type_generators{$type};
+	}
+	return template('0');
+}
+
 =head1 GENERATORS
+
+(all generators are also exportable)
 
 =head2 Numeric Generators
 
@@ -284,7 +309,10 @@ sub date {
 	substr(datetime(@_), 0, 10)
 }
 
-BEGIN { *timestamp= *datetime; }
+BEGIN {
+	*timestamp= *datetime2= *datetime_without_time_zone= *datetime;
+	*datetimeoffset= *datetime_with_time_zone= *datetime;
+}
 
 =head2 Binary Data Generators
 
