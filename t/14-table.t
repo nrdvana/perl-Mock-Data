@@ -98,9 +98,9 @@ subtest constructor => sub {
 			[MockDBIxClass::ResultSource->new({
 				name => 'from_schema_ResultSource',
 				columns => [
-					id   => { data_type => 'integer', auto_increment => 1, is_nullable => 0 },
+					id   => { data_type => 'integer', is_auto_increment => 1, is_nullable => 0 },
 					name => { data_type => 'varchar', size => 64 },
-					val  => { data_type => 'numeric', size => [8,2],       is_nullable => 1 },
+					val  => { data_type => 'numeric', size => [8,2],          is_nullable => 1 },
 				],
 				keys => {
 				},

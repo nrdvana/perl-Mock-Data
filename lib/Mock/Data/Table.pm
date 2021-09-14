@@ -518,6 +518,20 @@ sub coerce_column {
 	# Remap from DBIC names
 	$spec->{type}= delete $spec->{data_type} if defined $spec->{data_type};
 	$spec->{null}= 1 if delete $spec->{is_nullable};
+	$spec->{fk}= 1 if delete $spec->{is_foreign_key};
+	$spec->{auto_increment}= 1 if delete $spec->{is_auto_increment};
+	if (my $def= delete $spec->{defalt_value}) {
+		if (!ref $def) {
+			$def =~ s/ \{ /{#7B}/xg;
+			$spec->{mock} //= $def;
+		} elsif (ref $def eq 'SCALAR') {
+			# If a date column has a default, it almost always means the timestamp will be in the past,
+			# so the generic 'datetime' generator will suffice.
+			$spec->{mock} //= ($spec->{type} =~ /datetime/i)? '{datetime}'
+				: $spec->{type} =~ /date/i? '{date}'
+				: Mock::Data::Plugin::SQLTypes::generator_for_column($spec);
+		}
+	}
 
 	# If type has parenthesees and size not given, split it
 	if ($spec->{type} && !defined $spec->{size} && $spec->{type} =~ /^([^(]+) \( (.+) \) $/x) {
