@@ -2,7 +2,7 @@ package Mock::Data::Plugin::SQLTypes;
 use Mock::Data::Plugin -exporter_setup => 1;
 use Mock::Data::Plugin::Net qw( cidr macaddr ), 'ipv4', { -as => 'inet' };
 use Mock::Data::Plugin::Number qw( integer decimal float sequence uuid byte );
-use Mock::Data::Plugin::Text join => { -as => 'text_join' };
+use Mock::Data::Plugin::Text 'join' => { -as => 'text_join' }, 'words';
 our %type_generators= map +($_ => 1), qw(
 	integer tinyint smallint bigint
 	sequence serial smallserial bigserial
@@ -18,7 +18,16 @@ our %type_generators= map +($_ => 1), qw(
 	json jsonb
 	uuid inet cidr macaddr
 );
-export(qw( generator_for_column ), keys %type_generators);
+export(keys %type_generators);
+
+sub generator_for_type {
+	my ($mock, $type)= @_;
+	$type =~ s/\s+/_/g;
+	my $gen= $mock->generators->{$type} // $mock->generators->{"SQL::$type"}
+		// $type_generators{$type} && Mock::Data::GeneratorSub->new(__PACKAGE__->can($type));
+	# TODO: check for complex things like postgres arrays
+	return $gen;
+}
 
 # ABSTRACT: Collection of generators that produce data matching a SQL column type
 # VERSION
@@ -61,26 +70,6 @@ sub apply_mockdata_plugin {
 }
 
 =head1 EXPORTABLE FUNCTIONS
-
-=head2 generator_for_column
-
-Return an appropriate generator for a column.  If the column does not have a type, or if
-the type is not known, this returns a generator that returns '0' (which fits into most
-numeric and varchar type fields)
-
-=cut
-
-sub generator_for_column {
-	my $col= shift;
-	if (defined $col->{type}) {
-		(my $type= $col->{type}) =~ s/\W/_/g; # for 'datetime with time zone'
-		my $params= {};
-		$params->{size}= $col->{size} if defined $col->{size};
-		return Mock::Data::GeneratorSub->new(__PACKAGE__->can($type), keys %$params? ( $params ) : ())
-			if $type_generators{$type};
-	}
-	return template('0');
-}
 
 =head1 GENERATORS
 
@@ -201,11 +190,48 @@ BEGIN { *bool= *boolean= *bit; }
 =head3 varchar
 
   $str= $mock->varchar($size);
-  $str= $mock->varchar({ size => $size });
+  $str= $mock->varchar(\%options, $size);
+  # %options:
+  {
+    size        => $max_chars,
+	size_weight => sub($size) { ... }
+    source      => $generator_or_name,
+  }
 
 Generate a string of random length, from 1 to C<$size> characters.  If C<$size> is not given, it
-defaults to 16.  If there is a generator named C<'word'>, this will pull strings from that up to
-the random chosen length.
+defaults to 16.  C<size_weight> is a function used to control the distribution of random lengths.
+The default applies a reduced chance of generating long strings when C<$size> is greater than 32.
+
+C<source> is the name of a generator (or a generator reference) to use for generating words that
+get concatenated up to the random length.  The default is the generator named C<'word'> in the
+current C<Mock::Data>, and if that doesn't exist it uses L<Mock::Data::Plugin::Text/word>.
+
+=cut
+
+sub varchar {
+	my $mock= shift;
+	my $params= ref $_[0] eq 'HASH'? shift : undef;
+	my $size= shift // ($params? $params->{size} : undef) // 16;
+	my $size_weight= ($params? $params->{size_weight} : undef) // \&_default_size_weight;
+	my $source= ($params? $params->{source} : undef);
+	if (defined $source && !ref $source) {
+		Carp::croak("No generator '$source' available")
+			unless $mock->generators->{$source};
+	} else {
+		$source= $mock->generators->{word}? 'word' : \&word;
+	}
+	return text_join($mock, {
+		source => $source,
+		max_len => $size,
+		len => $size_weight->($size),
+	});
+}
+sub _default_size_weight {
+	my $size= shift;
+	$size <= 32? int rand($size+1)
+		: int rand(100)? int rand(33)
+		: 33+int rand($size-31)
+}
 
 =head3 text
 
@@ -217,15 +243,6 @@ Aliases for C<text>, and don't generate larger data because that would just slow
 
 =cut
 
-sub varchar {
-	my $mock= shift;
-	my $params= ref $_[0] eq 'HASH'? shift : undef;
-	my $size= shift // ($params? $params->{size} : undef) // 16;
-	my $source= ($params? $params->{source} : undef) // 'word';
-	my $source_gen= ref $source? $source : $mock->generators->{$source}
-		// Carp::croak("No generator '$source' available");
-	return text_join($mock, { source => $source_gen, max_len => $size, len => int rand $size });
-}
 
 BEGIN { *nvarchar= *varchar; }
 
@@ -240,7 +257,7 @@ BEGIN { *ntext= *tinytext= *mediumtext= *longtext= *text; }
 =head3 char
 
   $str= $mock->char($size);
-  $str= $mock->char({ size => $size });
+  $str= $mock->char(\%options, $size);
 
 Same as varchar, but the default size is 1, and the string will be padded with whitespace
 up to C<$size>.

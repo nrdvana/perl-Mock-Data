@@ -5,9 +5,10 @@ use Carp 'croak';
 use Scalar::Util;
 use List::Util;
 use Mock::Data::Util 'coerce_generator';
-require Mock::Data::Plugin::Table::TableData;
+use Mock::Data::Plugin::Table 'get_generator_for_column';
 require Mock::Data::Generator;
-our @ISA= ( 'Mock::Data::Generator' );
+require Mock::Data::Plugin::Table::TableData;
+our @ISA= qw( Mock::Data::Generator );
 
 # ABSTRACT: Object representing one defined schema table
 # VERSION
@@ -520,18 +521,6 @@ sub coerce_column {
 	$spec->{null}= 1 if delete $spec->{is_nullable};
 	$spec->{fk}= 1 if delete $spec->{is_foreign_key};
 	$spec->{auto_increment}= 1 if delete $spec->{is_auto_increment};
-	if (my $def= delete $spec->{defalt_value}) {
-		if (!ref $def) {
-			$def =~ s/ \{ /{#7B}/xg;
-			$spec->{mock} //= $def;
-		} elsif (ref $def eq 'SCALAR') {
-			# If a date column has a default, it almost always means the timestamp will be in the past,
-			# so the generic 'datetime' generator will suffice.
-			$spec->{mock} //= ($spec->{type} =~ /datetime/i)? '{datetime}'
-				: $spec->{type} =~ /date/i? '{date}'
-				: Mock::Data::Plugin::SQLTypes::generator_for_column($spec);
-		}
-	}
 
 	# If type has parenthesees and size not given, split it
 	if ($spec->{type} && !defined $spec->{size} && $spec->{type} =~ /^([^(]+) \( (.+) \) $/x) {
@@ -838,12 +827,11 @@ sub _generate {
 	my $cols= $self->columns;
 	my @rels= values %{ $self->relationships };
 	my $keys= $self->_key_search_seq;
-	my @cols_with_mock= grep defined $_->{mock}, values %$cols;
 	my @find_keys= !$params->{find}? ()
 		: $params->{find} eq '*'? @{$self->_key_search_seq}
 		: grep $_->{unique}, @{$self->_key_search_seq};
-	my %gen_cache;
-
+	my $gen_cache= $params->{_gen_cache}{$self->{name}} //= {};
+	my @cols_with_mock= grep defined $_->{mock} || !$_->{null}, values %$cols;
 	my @ret;
 	for my $row (@$rows) {
 		# In 'find' mode, first check whether the $row has any keys that match existing rows
@@ -882,7 +870,7 @@ sub _generate {
 			) {
 				if (!$rrows) {
 					if ($rel->{mock}) {
-						my $generator= $gen_cache{"r$rname"} //= coerce_generator($rel->{mock})->compile;
+						my $generator= $gen_cache->{"r$rname"} //= coerce_generator($rel->{mock})->compile;
 						$rrows= $generator->($mock, $params, 1);
 					}
 					$rrows //= {};
@@ -909,7 +897,11 @@ sub _generate {
 		# Now apply mock values for every mockable column
 		# TODO: make sure to generate unique values for unique keys
 		for (grep !exists $row->{$_->{name}}, @cols_with_mock) {
-			my $generator= $gen_cache{'c'.$_->{name}} //= coerce_generator($_->{mock})->compile;
+			my $generator= $gen_cache->{'c'.$_->{name}} //= do {
+				my $g= get_generator_for_column($mock, $self, $_)
+					or croak "Can't determine generator for non-null column $self->{name}.$_->{name}";
+				$g->compile;
+			};
 			$row->{$_->{name}}= $generator->($mock, { table => $self, col => $_, row => $row });
 		}
 		# In multi-table mode, apply this record to the sequence of insertions
@@ -934,7 +926,7 @@ sub _generate {
 				# Else, create one if there is a generator or specified related row
 				if (!$rel->{fk} && ($rrows || defined $rel->{mock})) {
 					unless ($rrows) {
-						my $generator= $gen_cache{"r$rname"} //= coerce_generator($rel->{mock})->compile;
+						my $generator= $gen_cache->{"r$rname"} //= coerce_generator($rel->{mock})->compile;
 						$rrows= $generator->($mock, $params, 1);
 					}
 					$rrows= [ $rrows ] if ref $rrows eq 'HASH';
@@ -952,7 +944,7 @@ sub _generate {
 				# 1:N are usually totally optional.  Use rows provided, else generator, else generate 0..2 rows.
 				unless ($rrows) {
 					if ($rel->{mock}) {
-						my $generator= $gen_cache{"r$rname"} //= coerce_generator($rel->{mock})->compile;
+						my $generator= $gen_cache->{"r$rname"} //= coerce_generator($rel->{mock})->compile;
 						$rrows= $generator->($mock, $params, 1);
 					} else {
 						$rrows= [ ({}) x int rand 3 ];
@@ -968,7 +960,7 @@ sub _generate {
 				# If it is a foreign key, it was dealt with above
 				if (!$rel->{fk} && ($rrows || defined $rel->{mock})) {
 					unless ($rrows) {
-						my $generator= $gen_cache{"r$rname"} //= coerce_generator($rel->{mock})->compile;
+						my $generator= $gen_cache->{"r$rname"} //= coerce_generator($rel->{mock})->compile;
 						$rrows= $generator->($mock, $params, 1);
 					}
 					$rrows= [ $rrows ] if ref $rrows eq 'HASH';

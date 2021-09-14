@@ -1,8 +1,9 @@
 package Mock::Data::Plugin::Table;
 use Mock::Data::Plugin -exporter_setup => 1;
 use Carp;
-use Mock::Data::Table;
-use Mock::Data qw/ mock_data_subclass /;
+use Mock::Data qw/ mock_data_subclass coerce_generator /;
+use Mock::Data::Plugin::Number 'sequence';
+export qw( get_generator_for_column );
 
 # ABSTRACT: Mock::Data plugin that generates relational tables of data
 # VERSION
@@ -280,79 +281,6 @@ sub _decide_auto_unique_source {
 This generator returns a random number within the number of digits and precision specified
 for the column.
 
-=head2 varchar
-
-  $mockdata->varchar({ column => { size => 12 } }) # returns "" through "varchar___12"
-  $mockdata->varchar({ size => 15 })               # returns "" through "varchar______15"
-  $mockdata->varchar({ size => 100000 })           # 99%: returns length < 64, 1% length > 64
-  $mockdata->varchar({ source => 'lorem')          # calls "{lorem}", truncated to random length
-  $mockdata->varchar({}, 'lorem')                  # calls "{lorem}", truncated to random length
-
-This generator returns a random-length string, though it does not randomize the characters
-by default unless you give it an argument of what other generator to use, such as 'lorem'.
-
-Named arguments:
-
-=over
-
-=item column
-
-A reference to a L<Table column|Mock::RelationalData::Table/columns>.  Optional.
-
-=item size
-
-The default upper limit on the size of the generated string.  If not provided, this
-defaults to the size of the C<col>.  If that is also not given, it defaults to 64.
-
-If the size is less than C<min+100>, there is an even probability of selecting any length
-string up to this size.  If the size is greater than C<min+100>, the randomziation is alered
-so that 99% of the generated strings are less than C<min+100>, but 1% can be any length up
-to the maximum.
-
-=item max
-
-A sanity check that will be applied to the value of C<size>.  Defaults to C<10_000_000>.
-
-=item common_max
-
-A statistical boundary such that strings shorter than this are 99% more likely.
-
-=item min
-
-Minimum length of the string.  Defaults to 0.
-
-=item source
-
-The name of another generator which will be used to generate the characters.
-
-=back
-
-=cut
-
-sub varchar {
-	my ($reldata, $args, $source)= @_;
-	my $col= $args && $args->{col};
-	my $size= (($args && defined $args->{size})? $args->{size} : ($col && $col->{size})) || 64;
-	my $max= ($args && defined $args->{max})? $args->{max} : 10_000_000;
-	my $min= ($args && $args->{min}) || 0;
-	my $common_max= ($args && defined $args->{common_max})? $args->{common_max} : $min + 100;
-	$source= $args->{source} unless defined $args->{source};
-	# random length.  avoid really long strings except for 1/100 chance
-	$size= $size > $common_max && rand() < .01? $common_max + int rand($size - $common_max)
-		: $min + int rand($size - $min);
-	# cap for sanity
-	$size= $max if $size > $max;
-	# use specified generator, if any
-	if ($source) {
-		my $gen= $reldata->generators->{$source}
-			or croak "No such source generator '$source' defined in parent";
-		return $gen->($reldata, { ($args? %$args : ()), size => $size });
-	}
-	# else use "varchar_____N" default
-	return $size > 7? 'varchar' . ('_' x ($size - 7 - length $size)) . length($size)
-		: substr('varchar', 0, $size);
-}
-
 =head1 METHODS
 
 The following methods are added to the Mock::Data instance when using this plugin:
@@ -364,6 +292,7 @@ The following methods are added to the Mock::Data instance when using this plugi
 $INC{'Mock/Data/Plugin/Table/Methods.pm'}= __FILE__;
 *Mock::Data::Plugin::Table::Methods::declare_schema= *declare_schema;
 *Mock::Data::Plugin::Table::Methods::set_column_mock= *set_column_mock;
+*Mock::Data::Plugin::Table::Methods::get_generator_for_column= *get_generator_for_column;
 *Mock::Data::Plugin::Table::Methods::table= *table;
 *Mock::Data::Plugin::Table::Methods::tables= *tables;
 
@@ -447,31 +376,47 @@ sub set_column_mock {
 	}
 }
 
-=head2 default_generator_for_column
+=head2 get_generator_for_column
 
-  my $generator= $mock->default_generator_for_column(\%col_info);
-  my $generator= $mock->default_generator_for_column($table, $col);
+  my $generator= $mock->get_generator_for_column(\%col_info);
+  my $generator= $mock->get_generator_for_column($table, $col);
 
-Given a hashref of DBIx::Class column info, return a generator that can return valid
-values for this column.  Alternately, you can pass a table name (or table reference)
-and column name (or column reference).  In some cases, the table is required to give
-the most correct generator.
+Given a hashref of L<column info|Mock::Data::Table/columns>, return a generator that can return
+valid values for this column.  Alternately, you can pass a table name (or table reference) and
+column name (or column reference).  In some cases, the table is required to give the most
+correct generator.
 
 =cut
 
-sub default_generator_for_column {
-	my ($self, $table, $col)= @_;
-	return $self->compile_generator($col->{mock})
-		if exists $col->{mock};
-
-	return $self->generators->{int_seq}
-		if $col->{is_auto_increment} && defined $self->generators->{int_seq};
-	
-	if (defined $col->{data_type}) {
-		my ($base_type)= $col->{data_type} =~ /^(\w+)/;
-		my $gen= $self->generators->{"data_type_$base_type"};
-		return $gen if defined $gen;
+sub get_generator_for_column {
+	my ($mock, $col, $table)= @_ == 2? @_ : @_[0,2,1];
+	if (defined $table && !ref $table) {
+		my $t= $mock->generators->{"Table::$table"} // $mock->generators->{$table};
+		defined $t && $t->isa('Mock::Data::Table')
+			or croak "No such table $table";
+		my $c= ref $col? $col : $t->columns->{$col}
+			or croak "No such column $t->{name}.$col";
+		($table, $col)= ($t, $c);
 	}
+
+	return coerce_generator($col->{mock})
+		if defined $col->{mock};
+
+	if ($col->{auto_increment}) {
+		my $seq_name= $table? "$table->{name}.$col->{name}"
+			: $col->{name}? 0+$col . ".$col->{name}"
+			: 0+$col;
+		return Mock::Data::GeneratorSub->new(sub { sequence(shift, $seq_name) })
+	}
+
+	if (my $def= $col->{defalt_value}) {
+		return sub { $def }
+			unless ref $def;
+		# maybe try to parse SQL functions in scalar ref?
+	}
+
+	return Mock::Data::Plugin::SQLTypes::generator_for_type($mock, $col->{type})
+		if $col->{type};
 
 	return undef;
 }
@@ -505,6 +450,8 @@ sub populate {
 	return @ret;
 }
 
+require Mock::Data::Table;
+require Mock::Data::Plugin::SQLTypes;
 1;
 
 =head1 SEE ALSO
