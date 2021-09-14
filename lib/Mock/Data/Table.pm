@@ -235,7 +235,7 @@ A hashref of relation names from this table to another table.  Each relation is 
   
   # or many-many relations:
   
-    cardinality => 'N:N',
+    cardinality => 'M:N',
     rel         => $self_relation_to_peer,
     peer_rel    => $peer_relation_to_destination,
   }
@@ -474,6 +474,13 @@ sub _build__key_search_seq {
 	]
 }
 
+=head2 coerce_column_or_relationship
+
+Given a hashref with either column or relationship info, guess which it is and then run
+either C<coerce_column> or C<coerce_relationship>.
+
+=cut
+
 sub coerce_column_or_relationship {
 	my ($self, $spec)= @_;
 	return { mock => $spec }
@@ -484,6 +491,25 @@ sub coerce_column_or_relationship {
 			|| $spec->{'1:1'} || $spec->{'M:N'};
 	return $self->coerce_column($spec);
 }
+
+=head2 coerce_column
+
+  $class->coerce_column( \%col_info );
+  $class->coerce_column( $mock_value );
+
+If given a hashref, this will process the attributes into the form used by this module.
+For instance, this converts DBIC's C<is_nullable> to C<null>, C<data_type> to C<type>,
+amd so on.  If given any other type of value, it will be assumed to be the C<< ->{mock} >>
+attribute of the column.
+
+The following non-attributes can be specified to affect keys or relationships (and will not be
+preserved on the finished columns list)
+
+  pk => 1,                       # add this column to the primary key
+  fk => 'PeerTable.PeerCol'      # create a foreign key relationship for this column
+  fk => [$peer_tbl, $peer_col]   # same
+
+=cut
 
 sub coerce_column {
 	my ($self, $spec)= @_;
@@ -502,6 +528,33 @@ sub coerce_column {
 
 	return $spec;
 }
+
+=head2 coerce_relationship
+
+This takes a hashref describing a relationship and converts it to the attributes needed by
+this module.  All the fields used by DBIx::Class are handled, and additionally the following
+shorthand notations:
+
+  # cardinality shortcut:
+  { $c => { $self_col => "$peer.$peer_col", ... } }
+  
+  # becomes:
+  { cardinality => $c,
+    cols => [ $self_col, ... ],
+    peer => $peer
+    peer_cols => [ $peer_col, ... ],
+  }
+  
+  # M:N is special:
+  { 'M:N' => [ $rel1 => $rel2 ] }
+  
+  # becomes:
+  { cardinality => 'M:N',
+    rel         => $rel1,
+    peer_rel    => $rel2,
+  }
+
+=cut
 
 sub coerce_relationship {
 	my ($self, $spec)= @_;
@@ -654,9 +707,15 @@ sub generate {
 	my ($self, $mock)= (shift, shift);
 	$mock->isa('Mock::Data') or croak "First argument must be Mock::Data";
 	my %opts= ref $_[0] eq 'HASH'? %{shift()} : ();
-	my @rows= ref $_[0] eq 'ARRAY'? @{$_[0]} : $opts{rows}? @{$opts{rows}} : ();
-	my $count= defined $_[0] && !ref $_[0]? shift : $opts{count} // 1;
-	croak "Unexpected parameter '$_[0]'" if @_;
+	my ($count, @rows);
+	if (@_) {
+		if (ref $_[0] eq 'ARRAY') { @rows= @{shift()} }
+		elsif (defined $_[0] && !ref $_[0]) { $count= shift; }
+		else { croak "Unexpected parameter '$_[0]'" }
+	}
+	push @rows, @{$opts{rows}} if $opts{rows} && !@rows;
+	$count //= $opts{count} // 1;
+	
 	$opts{mock}= $mock;
 	$opts{store}= _coerce_store($opts{store}, $mock);
 
