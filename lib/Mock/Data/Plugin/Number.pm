@@ -85,7 +85,7 @@ sub integer {
 		# calls to rand() only return 53 bits, because it is a double.  To get 64, need to
 		# combine multiple rands.  Also, can't get 32 bits from rand on 32bit arch.
 		my $val= $bits < $int_bits && $bits < $float_bits? int(rand(1<<$int_bits))
-			: unpack('J', byte($mock, int(($bits+7) / 8))) >> ($int_bits-$bits);
+			: unpack('J', byte($mock, 8)) >> ($int_bits-$bits);
 		return $signed && int rand 2? -$val : $val;
 	}
 }
