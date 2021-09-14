@@ -569,16 +569,28 @@ sub coerce_relationship {
 		%$spec= ( %$spec, cardinality => 'N:1', _extract_cols_from_mapping($mapping) );
 	} elsif ($mapping= delete $spec->{'M:N'}) {
 		$spec->{cardinality}= 'M:N';
-		$spec->{rel}= $mapping->[0];
-		$spec->{peer_rel}= $mapping->[1];
+		if (ref $mapping eq 'ARRAY') {
+			$spec->{rel}= $mapping->[0];
+			$spec->{peer_rel}= $mapping->[1];
+		} else {
+			%$spec= ( %$spec, _extract_cols_from_mapping($mapping) );
+		}
 	}
 
 	# TODO: handle DBIC translation
 
 	# Verify required columns
 	defined $spec->{cardinality} || croak "Relationship must specify 'cardinality'";
-	defined $spec->{$_} || croak "Relationship must specify '$_'"
-		for $spec->{cardinality} eq 'M:N'? qw( rel peer_rel ) : qw( peer cols peer_cols );
+	if ($spec->{cardinality} ne 'M:N') {
+		defined $spec->{$_} || croak "$spec->{cardinality} relationship must specify '$_'"
+			for qw( peer cols peer_cols );
+	} else {
+		my $bits= 0;
+		$bits= ($bits<<1) | (defined? 1:0)
+			for @{$spec}{qw( rel peer_rel cols peer peer_cols )};
+		croak "M:N relationship must specify 'rel','peer_rel', or 'peer','cols','peer_cols'"
+			unless $bits == 0b11000 || $bits == 0b00111;
+	}
 	return $spec;
 }
 
