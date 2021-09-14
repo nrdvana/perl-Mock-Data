@@ -242,4 +242,44 @@ subtest complex_keys => sub {
 	}
 };
 
+subtest has_many => sub {
+	my $mock= Mock::Data->new({
+		plugins => ['SQLTypes'],
+		generators => {
+			album => Mock::Data::Table->new({
+				name => 'album',
+				columns => [
+					id   => { auto_increment => 1, mock => '{sequence album.id}' },
+					name => { type => 'varchar' },
+					artist_id => { fk => 'artist.id' },
+				],
+			}),
+			artist => Mock::Data::Table->new({
+				name => 'artist',
+				columns => [
+					id   => { auto_increment => 1, mock => '{sequence artist.id}' },
+					name => { type => 'varchar' },
+				],
+				relationships => {
+					albums => { '1:N' => { id => 'album.artist_id' } }
+				}
+			})
+		}
+	});
+	my $result= $mock->call(artist => [
+		{ name => 'Symphony X', albums => [
+			{ name => 'The Odyssey' },
+			{ name => 'Paradise Lost' }
+		]}
+	]);
+	is(
+		$result,
+		[{ id => 1, name => 'Symphony X', albums => [
+			{ id => 1, name => 'The Odyssey', artist_id => 1 },
+			{ id => 2, name => 'Paradise Lost', artist_id => 1 },
+		]}],
+		'Artist with two albums'
+	);
+};
+
 done_testing;

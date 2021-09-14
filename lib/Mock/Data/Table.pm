@@ -408,7 +408,7 @@ sub coerce_attributes {
 	# "fk" is not part of the column spec, so remove it afterward.
 	for my $col (grep $_->{fk}, values %columns) {
 		my $fk= delete $col->{fk};
-		my ($peer_table, $peer_column)= !ref $col->{fk}? split('.',$col->{fk}) : @{$col->{fk}};
+		my ($peer_table, $peer_column)= !ref $fk? split(/[.]/,$fk) : @$fk;
 		defined $peer_table && length $peer_table && defined $peer_column && length $peer_column
 			or croak "Expected column fk to be an arrayref ['table'=>'column'] or scalar 'table.column'";
 		my $has_unique_key= scalar grep {
@@ -859,8 +859,13 @@ sub _generate {
 		my %related_rows;
 		for my $rel (@rels) {
 			my $rname= $rel->{name};
-			my $peer= $mock->generators->{"Table::$rel->{peer}"}
-				or croak "Table '$rel->{peer}' neded by relationship '$self->{name}.$rname' does not exist in \$mock->generators";
+			my $peer= $mock->generators->{"Table::$rel->{peer}"} // $mock->generators->{$rel->{peer}};
+			$peer && $peer->isa('Mock::Data::Table')
+				or croak "Table '$rel->{peer}' needed by relationship '$self->{name}.$rname' does not exist in \$mock->generators";
+			# avoid infinite recursion if this ->_generate was called by another _generate
+			# on the other end of this relationship.
+			next if $via_relationship && $peer == $via_relationship->[0]
+				&& join("\0",sort @{$rel->{cols}}) eq join("\0",sort @{$via_relationship->[2]{peer_cols}});
 			# $row may contain values for the relatonship, but the relationship might also share
 			# a name with a column.  If it could be a column, only treat it as relationship data
 			# if the value is an arrayref or hashref and the column type is not json.
@@ -885,8 +890,12 @@ sub _generate {
 				$related_rows{$rname}= $rrows= [ $rrows ] if ref $rrows eq 'HASH';
 				@$rrows == 1 or croak "Must specify exactly one foreign row for relationship $rname";
 				# Does the row have the foreign key in it?  Call generate if not.
-				$peer->_generate($params, $rrows, [$self, $row, $rel])
-					unless List::Util::all { defined $rrows->[0]{$_} } @{$rel->{peer_cols}};
+				if (grep !defined $rrows->[0]{$_}, @{$rel->{peer_cols}}) {
+					$peer->_generate($params, $rrows, [$self, $row, $rel]);
+					defined $rrows->[0]{$_} or croak "$rel->{peer}->generate did not build a value for column '$_' needed by $self->{name}.$rel->{name}"
+						for @{$rel->{peer_cols}};
+				}
+					
 				# Copy it from the remote row to current row
 				_set_row_cols_from_peer($row, $rel, $rrows->[0]);
 			}
@@ -913,7 +922,7 @@ sub _generate {
 		# Now create all related rows that depend on this record
 		for my $rel (@rels) {
 			my $rname= $rel->{name};
-			my $peer= $mock->generators->{"Table::$rel->{peer}"};
+			my $peer= $mock->generators->{"Table::$rel->{peer}"} // $mock->generators->{$rel->{peer}};
 			my $rrows= $related_rows{$rname};
 			# avoid infinite recursion if this ->_generate was called by another _generate
 			# on the other end of this relationship.
@@ -952,7 +961,8 @@ sub _generate {
 				$rrows= [ $rrows ] if ref $rrows eq 'HASH';
 				_set_peer_cols_from_row($_, $rel, $row) for @$rrows;
 				$rrows= $peer->_generate($params, $rrows);
-				
+				$row->{$rel->{name}}= $rrows
+					unless $params->{multi_table};
 			}
 			elsif ($rel->{cardinality} eq 'N:1') {
 				# If it is a foreign key, it was dealt with above
@@ -994,24 +1004,32 @@ sub _coerce_store {
 
 sub _set_peer_cols_from_row {
 	my ($peer, $rel, $row)= @_;
-	my @cols= @{$row}[@{$rel->{cols}}];
-	unless (List::Util::all { defined } @cols) {
-		my $link_msg= @{$rel->{cols}} == 1? $rel->{cols}[0]
-			: '('.join(',', map "$_=".($row->{$_}//'NULL'), @{$rel->{cols}}).')';
-		croak "Can't relate row.$rel->{name} => $rel->{peer} on NULL column: ".$link_msg;
+	#my @cols= @{$row}{@{$rel->{cols}}};
+	#unless (List::Util::all { defined } @cols) {
+	#	my $link_msg= @{$rel->{cols}} == 1? $rel->{cols}[0]
+	#		: '('.join(',', map "$_=".($row->{$_}//'NULL'), @{$rel->{cols}}).')';
+	#	croak "Can't relate row.$rel->{name} => $rel->{peer} on NULL column: ".$link_msg;
+	#}
+	#@{$peer}{@{$rel->{peer_cols}}}= @cols;
+	for (0 .. $#{ $rel->{cols} }) {
+		my $v= $row->{ $rel->{cols}[$_] };
+		$peer->{ $rel->{peer_cols}[$_] }= $v if defined $v;
 	}
-	@{$peer}[@{$rel->{peer_cols}}]= @cols;
 }
 
 sub _set_row_cols_from_peer {
 	my ($row, $rel, $peer)= @_;
-	my @pcols= @{$peer}[@{$rel->{peer_cols}}];
-	unless (List::Util::all { defined } @pcols) {
-		my $link_msg= @{$rel->{peer_cols}} == 1? $rel->{peer_cols}[0]
-			: '('.join(',', map "$_=".($peer->{$_}//'NULL'), @{$rel->{peer_cols}}).')';
-		croak "Can't relate row.$rel->{name} <= $rel->{peer} on NULL column: ".$link_msg;
+	#my @pcols= @{$peer}{@{$rel->{peer_cols}}};
+	#unless (List::Util::all { defined } @pcols) {
+	#	my $link_msg= @{$rel->{peer_cols}} == 1? $rel->{peer_cols}[0]
+	#		: '('.join(',', map "$_=".($peer->{$_}//'NULL'), @{$rel->{peer_cols}}).')';
+	#	croak "Can't relate row.$rel->{name} <= $rel->{peer} on NULL column: ".$link_msg;
+	#}
+	#@{$row}{@{$rel->{cols}}}= @pcols;
+	for (0 .. $#{ $rel->{cols} }) {
+		my $v= $peer->{ $rel->{peer_cols}[$_] };
+		$row->{ $rel->{cols}[$_] }= $v if defined $v;
 	}
-	@{$row}[@{$rel->{cols}}]= @pcols;
 }
 
 no Carp 'croak'; # clean up namespace
