@@ -290,19 +290,19 @@ The following methods are added to the Mock::Data instance when using this plugi
 # Methods are defined in this file
 @Mock::Data::Plugin::Table::Methods::ISA= ( 'Mock::Data' );
 $INC{'Mock/Data/Plugin/Table/Methods.pm'}= __FILE__;
-*Mock::Data::Plugin::Table::Methods::declare_schema= *declare_schema;
+*Mock::Data::Plugin::Table::Methods::declare_tables= *declare_tables;
 *Mock::Data::Plugin::Table::Methods::set_column_mock= *set_column_mock;
 *Mock::Data::Plugin::Table::Methods::get_generator_for_column= *get_generator_for_column;
 *Mock::Data::Plugin::Table::Methods::table= *table;
 *Mock::Data::Plugin::Table::Methods::tables= *tables;
 
-=head2 declare_schema
+=head2 declare_tables
 
-  $mock->declare_schema($dbic_schema, ...);
-  $mock->declare_schema($dbic_source, ...);
-  $mock->declare_schema(\%table_attributes, ...);
-  $mock->declare_schema($table_name => \%table_attributes, ...);
-  $mock->declare_schema($table_name => \@column_list, ...);
+  $mock->declare_tables($dbic_schema, ...);
+  $mock->declare_tables($dbic_source, ...);
+  $mock->declare_tables(\%table_attributes, ...);
+  $mock->declare_tables($table_name => \%table_attributes, ...);
+  $mock->declare_tables($table_name => \@column_list, ...);
 
 Define one or more tables.  This function allows a variety of input: L<DBIx::Class::Schema>
 objects import every Source of the schema as a table, L<DBIx::Class::ResultSource> objects
@@ -317,7 +317,7 @@ a C<'-'> or add C<< replace => 1 >> to the table attribute hash.
 
 =cut
 
-sub declare_schema {
+sub declare_tables {
 	my $self= shift;
 	while (@_) {
 		my $thing= shift;
@@ -330,12 +330,17 @@ sub declare_schema {
 			} elsif (ref $_[0] eq 'HASH') {
 				%ctor= %{+shift};
 			} else {
-				%ctor= %{Mock::Data::Table::coerce_attributes(shift)};
+				%ctor= %{Mock::Data::Table->coerce_attributes(shift)};
 			}
 			$ctor{name}= $thing;
 		}
+		# Is it a DBIx::Class::Schema? then iterate all sources
+		elsif (ref($thing)->isa('DBIx::Class::Schema')) {
+			unshift @_, map +($_ => $thing->source($_)), $thing->sources;
+			next;
+		}
 		else {
-			%ctor= %{Mock::Data::Table::coerce_attributes(shift)};
+			%ctor= %{Mock::Data::Table->coerce_attributes(shift)};
 		}
 		$replace ||= delete $ctor{replace};
 		my $table= Mock::Data::Table->new(\%ctor);
@@ -343,6 +348,7 @@ sub declare_schema {
 		croak "Table generator '$gen_name' was already defined"
 			if $self->generators->{$gen_name} && !$replace;
 		$self->generators->{$gen_name}= $table;
+		$self->generators->{$table->name} //= $table;
 	}
 	$self;
 }

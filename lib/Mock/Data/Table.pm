@@ -519,7 +519,7 @@ sub coerce_column {
 	# Remap from DBIC names
 	$spec->{type}= delete $spec->{data_type} if defined $spec->{data_type};
 	$spec->{null}= 1 if delete $spec->{is_nullable};
-	$spec->{fk}= 1 if delete $spec->{is_foreign_key};
+	delete $spec->{is_foreign_key};
 	$spec->{auto_increment}= 1 if delete $spec->{is_auto_increment};
 
 	# If type has parenthesees and size not given, split it
@@ -563,6 +563,22 @@ sub coerce_relationship {
 	my ($self, $spec)= @_;
 	ref $spec eq 'HASH'
 		or croak "Relationship specification must be a hashref";
+	# Handle DBIC notations
+	if ($spec->{source} && $spec->{class}) {
+		delete $spec->{class};
+		my $attrs= delete $spec->{attrs} || {};
+		my $cond= delete $spec->{cond};
+		(delete $spec->{source}) =~ /([^:]+)$/ or croak "Can't determine peer table name";
+		$spec->{peer}= $1;
+
+		$spec->{cardinality}= $attrs->{accessor} eq 'multi'? '1:N'
+			: $attrs->{is_depends_on} || $attrs->{is_foreign_key_constraint}? 'N:1'
+			: '1:1';
+		$spec->{cols}= [ map { /\.(.*)/? $1 : $_ } values %$cond ];
+		$spec->{peer_cols}= [ map { /\.(.*)/? $1 : $_ } keys %$cond ];
+		$spec->{fk}= $attrs->{is_foreign_key_constraint};
+	}
+
 	my $mapping;
 	if ($mapping= delete $spec->{'1:N'}) {
 		%$spec= ( %$spec, cardinality => '1:N', _extract_cols_from_mapping($mapping) );
@@ -579,8 +595,6 @@ sub coerce_relationship {
 			%$spec= ( %$spec, _extract_cols_from_mapping($mapping) );
 		}
 	}
-
-	# TODO: handle DBIC translation
 
 	# Verify required columns
 	defined $spec->{cardinality} || croak "Relationship must specify 'cardinality'";
