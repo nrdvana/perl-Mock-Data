@@ -18,8 +18,8 @@ subtest word => sub {
 
 subtest words => sub {
 	my $mock= Mock::Data->new(['Text']);
-	like( $mock->words(50), qr/^[\w ]{50}/, '50 chars of words' );
-	like( $mock->words([30,50]), qr/^[\w ]{30,50}/, '30-50 chars of words' );
+	like( $mock->words(50), qr/^[\w ]{49,50}/, '50 chars of words' );
+	like( $mock->words([30,50]), qr/^[\w ]{29,50}/, '30-50 chars of words' );
 	like( $mock->words({ count => 5 }), qr/^(\w+ ){4}\w+$/, '5 words' );
 };
 
