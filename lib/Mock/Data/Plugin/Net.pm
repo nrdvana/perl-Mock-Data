@@ -3,6 +3,9 @@ use Mock::Data::Plugin -exporter_setup => 1;
 our @generators= qw( ipv4 cidr macaddr );
 export(@generators);
 
+# VERSION
+# ABSTRACT: Collection of generators for Internet-related data
+
 =head1 SYNOPSIS
 
   $mock= Mock::Data->new(['Net']);
@@ -26,7 +29,7 @@ sub apply_mockdata_plugin {
 
 =head1 GENERATORS
 
-=head2 inet
+=head2 ipv4
 
 Return a random IP address within C<< 127.0.0.0/8 >>, excluding .0 and .255
 

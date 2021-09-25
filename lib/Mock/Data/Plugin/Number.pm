@@ -16,7 +16,7 @@ export(@generators);
   $mock->byte($count);     # string of random bytes
   $mock->sequence($name);  # incrementing named counter, starting from 1
   $mock->uuid;             # UUID version 4 variant 1 (random)
-  
+
 =head1 DESCRIPTION
 
 This plugin provides some basic "random number" support.

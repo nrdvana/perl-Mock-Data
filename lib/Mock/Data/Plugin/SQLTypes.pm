@@ -20,15 +20,6 @@ our %type_generators= map +($_ => 1), qw(
 );
 export(keys %type_generators);
 
-sub generator_for_type {
-	my ($mock, $type)= @_;
-	$type =~ s/\s+/_/g;
-	my $gen= $mock->generators->{$type} // $mock->generators->{"SQL::$type"}
-		// $type_generators{$type} && Mock::Data::GeneratorSub->new(__PACKAGE__->can($type));
-	# TODO: check for complex things like postgres arrays
-	return $gen;
-}
-
 # ABSTRACT: Collection of generators that produce data matching a SQL column type
 # VERSION
 
@@ -55,7 +46,7 @@ sub generator_for_type {
   $mock->macaddr;
 
 This module defines generators that match the data type names used by various relational
-databases.  
+databases.
 
 The output patterns are likely to change in future versions, but will always be valid for
 inserting into a column of that type.
@@ -70,6 +61,23 @@ sub apply_mockdata_plugin {
 }
 
 =head1 EXPORTABLE FUNCTIONS
+
+=head2 generator_for_type
+
+  my $generatpr= generator_for_type($sqltype);
+
+Return a generator which can generate valid strings for a given SQL type.
+
+=cut
+
+sub generator_for_type {
+	my ($mock, $type)= @_;
+	$type =~ s/\s+/_/g;
+	my $gen= $mock->generators->{$type} // $mock->generators->{"SQL::$type"}
+		// $type_generators{$type} && Mock::Data::GeneratorSub->new(__PACKAGE__->can($type));
+	# TODO: check for complex things like postgres arrays
+	return $gen;
+}
 
 =head1 GENERATORS
 
@@ -233,6 +241,10 @@ sub _default_size_weight {
 		: 33+int rand($size-31)
 }
 
+=head3 nvarchar
+
+Alias for C<varchar>
+
 =head3 text
 
 Same as varchar, but the default size is 256.
@@ -290,6 +302,14 @@ compatibility with being able to insert into databases.
 Like C<datetime>, but only the C<'YYYY-MM-DD'> portion.
 
 =head3 timestamp
+
+=head3 datetime2
+
+=head3 datetime_without_time_zone
+
+=head3 datetimeoffset
+
+=head3 datetime_with_time_zone
 
 Alias for C<datetime>.
 
@@ -370,7 +390,7 @@ sub _json_encoder {
 		local $@;
 		my $mod= eval { require JSON::MaybeXS; 'JSON::MaybeXS' }
 			  || eval { require JSON; 'JSON' }
-			  || eval { require JSON::XS; 'JSON::XS' }
+			  || eval { require JSON::PP; 'JSON::PP' }
 			or Carp::croak("No JSON module found.  This must be installed for the SQL::json generator.");
 		$mod->new->canonical->ascii
 	};
