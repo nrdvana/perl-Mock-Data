@@ -411,4 +411,8 @@ L<Data::Faker>
 
 L<Mock::Populate>
 
+=item *
+
+L<String::Random>
+
 =back

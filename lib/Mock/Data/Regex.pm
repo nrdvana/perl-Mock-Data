@@ -257,9 +257,9 @@ sub _parse_regex {
 	my @or;
 	while (1) {
 		# begin parenthetical sub-expression?
-		if (/\G \( (\?)? /gcx) {
+		if (/\G \( /gcx) {
 			my $sub_flags= $flags;
-			if (defined $1) {
+			if (/\G \? /gcx) {
 				# leading question mark means regex flags.  This only supports the ^...: one:
 				if (/\G \^ ( \w* ) : /gcx) {
 					$sub_flags= {};
@@ -271,19 +271,17 @@ sub _parse_regex {
 					Carp::croak("Unsupported regex feature '(?".substr($_,pos,1)."'");
 				}
 			}
-			my $pos= pos;
+			my $pos= -1+pos;
 			push @$expr, $self->_parse_regex($sub_flags);
 			/\G \) /gcx
-				or die "Missing end-parenthesee, started at '"._parse_context($pos)."'";
+				or die "Missing end-parenthesee, started at "._parse_context($pos);
 		}
-		# end sub-expression or next alternation?
-		if (/\G ( [|)] ) /gcx) {
-			# end of sub-expression, return.
-			if ($1 eq ')') {
-				# back it up so the caller knows why we exited
-				--pos;
-				last;
-			}
+		# end sub-expression?
+		elsif (/\G(?= \) )/gcx) {
+			last;
+		}
+		# next alternation of 'or'?
+		elsif (/\G \| /gcx) {
 			# else begin next piece of @or
 			push @or, $self->_node($expr, $flags);
 			$expr= [];
@@ -673,3 +671,17 @@ sub reset {
 }
 
 1;
+
+=head1 SEE ALSO
+
+=over
+
+=item L<String::Random::Regexp::regxstring>
+
+Probably a better implementation, but depends on a C++ compiler.
+
+=item L<String::Random>
+
+=item L<Regexp::Genex>
+
+=back
