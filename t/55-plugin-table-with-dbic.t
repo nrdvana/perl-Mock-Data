@@ -14,17 +14,14 @@ eval {
 
 subtest simple_schema => sub {
 	my $db= LiveDBTestUtil::new_sqlite_schema(<<END);
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE artist(
   artistid    INTEGER PRIMARY KEY, 
   artistname  TEXT
 );
-
 CREATE TABLE track(
   trackid     INTEGER,
   trackname   TEXT, 
-  trackartist INTEGER,
+  trackartist INTEGER NOT NULL,
   FOREIGN KEY(trackartist) REFERENCES artist(artistid)
 );
 END
@@ -32,9 +29,14 @@ END
 	$mock->declare_tables($db);
 	like( $mock->generators, { Artist => D(), Track => D() }, 'Have Artist and Track generators' );
 	my $data= $mock->Artist(10);
-	like( $data, [ ({})x10 ], '10 rows' );
+	like( $data, [ ({})x10 ], '10 Artist rows' );
 	my $rows= $db->resultset('Artist')->populate($data);
-	like( $rows, [ (D())x10 ], '10 row objects' );
+	like( $rows, [ (D())x10 ], '10 Artist row objects inserted' );
+	$data= $mock->Track(10);
+	like( $data, [ ({ trackartist => {} })x10 ], '10 Track rows with related artist' );
+	use DDP; note &np([$mock->generator_state]);
+	$rows= $db->resultset('Artist')->populate($data);
+	like( $rows, [ (D())x10 ], '10 Track row objects inserted' );
 };
 
 done_testing;
