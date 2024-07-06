@@ -8,10 +8,8 @@ my @tests= (
 	[ q( '{a}'                 ), 'a_val' ],
 	[ q( ['a']                 ), 'a' ],
 	[ q( sub {'a'}             ), 'a' ],
-	[ q( qr/(\w+)@(\w+)\.com/a ), qr/(\w+)@(\w+)\.com/ ],
-	[ q( qr/(\w+)@(\w+)(\.com|\.org|\.net|\.co\.uk)/a ), qr/(\w+)@(\w+)(\.com|\.org|\.net|\.co\.uk)/a ],
-,
-
+	[ q( qr/(\w+)@(\w+)\.com/  ), qr/(\w+)@(\w+)\.com/ ],
+	[ q( qr/(\w+)@(\w+)(\.com|\.org|\.net|\.co\.uk)/ ), qr/(\w+)@(\w+)(\.com|\.org|\.net|\.co\.uk)/ ],
 );
 
 plan scalar @tests;
@@ -35,7 +33,6 @@ for (@tests) {
 		my $arg= eval $spec or die $@;
 		my $gen= coerce_generator($arg);
 		like( my $val= $gen->generate($mockdata), $result, "generates '$result'" );
-		note $val;
 		is( reftype($gen->compile), 'CODE', 'compiles to coderef' );
 		like( $gen->compile->($mockdata), $result, "compiled generates '$result'" );
 	};
