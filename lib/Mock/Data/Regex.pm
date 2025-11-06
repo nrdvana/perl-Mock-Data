@@ -680,6 +680,10 @@ sub reset {
 
 Probably a better implementation, but depends on a C++ compiler.
 
+=item L<https://metacpan.org/pod/Data::Random::String::Matches>
+
+Supports back-references
+
 =item L<String::Random>
 
 =item L<Regexp::Genex>
