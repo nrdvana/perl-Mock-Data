@@ -931,46 +931,49 @@ sub Mock::Data::Charset::Util::merge_invlists {
 	my $max_codepoint= shift // 0x10FFFF;
 
 	return [] unless @invlists;
-	return [@{$invlists[0]}] unless @invlists > 1;
 	my @combined= ();
-	# Repeatedly select the minimum range among the input lists and add it to the result
-	my @pos= (0)x@invlists;
-	while (@invlists) {
-		my ($min_ch, $min_i)= ($invlists[0][$pos[0]], 0);
-		# Find which inversion list contains the lowest range
-		for (my $i= 1; $i < @invlists; $i++) {
-			if ($invlists[$i][$pos[$i]] < $min_ch) {
-				$min_ch= $invlists[$i][$pos[$i]];
-				$min_i= $i;
+	if (@invlists > 1) {
+		# Repeatedly select the minimum range among the input lists and add it to the result
+		my @pos= (0)x@invlists;
+		while (@invlists) {
+			my ($min_ch, $min_i)= ($invlists[0][$pos[0]], 0);
+			# Find which inversion list contains the lowest range
+			for (my $i= 1; $i < @invlists; $i++) {
+				if ($invlists[$i][$pos[$i]] < $min_ch) {
+					$min_ch= $invlists[$i][$pos[$i]];
+					$min_i= $i;
+				}
 			}
-		}
-		last if $min_ch > $max_codepoint;
-		# Check for overlap of this new inclusion range with the previous
-		if (@combined && $combined[-1] >= $min_ch) {
-			# they overlap, so just replace the end-codepoint of the range
-			# if the new endpoint is larger
-			my $new_end= $invlists[$min_i][$pos[$min_i]+1];
-			$combined[-1]= $new_end if !defined $new_end || $combined[-1] < $new_end;
-		}
-		else {
-			# else, simply append the range
-			push @combined, @{$invlists[$min_i]}[$pos[$min_i] .. $pos[$min_i]+1];
-		}
-		# If the list is empty now, remove it from consideration
-		if (($pos[$min_i] += 2) >= @{$invlists[$min_i]}) {
-			splice @invlists, $min_i, 1;
-			splice @pos, $min_i, 1;
-			# If the invlist ends with an infinite range now, we are done
-			if (!defined $combined[-1]) {
-				pop @combined;
+			last if $min_ch > $max_codepoint;
+			# Check for overlap of this new inclusion range with the previous
+			if (@combined && $combined[-1] >= $min_ch) {
+				# they overlap, so just replace the end-codepoint of the range
+				# if the new endpoint is larger
+				my $new_end= $invlists[$min_i][$pos[$min_i]+1];
+				$combined[-1]= $new_end if !defined $new_end || $combined[-1] < $new_end;
+			}
+			else {
+				# else, simply append the range
+				push @combined, @{$invlists[$min_i]}[$pos[$min_i] .. $pos[$min_i]+1];
+			}
+			# If the list is empty now, remove it from consideration
+			if (($pos[$min_i] += 2) >= @{$invlists[$min_i]}) {
+				splice @invlists, $min_i, 1;
+				splice @pos, $min_i, 1;
+				# If the invlist ends with an infinite range now, we are done
+				if (!defined $combined[-1]) {
+					pop @combined;
+					last;
+				}
+			}
+			# If this is the only list remaining, append the rest and done
+			elsif (@invlists == 1) {
+				push @combined, @{$invlists[0]}[$pos[0] .. $#{$invlists[0]}];
 				last;
 			}
 		}
-		# If this is the only list remaining, append the rest and done
-		elsif (@invlists == 1) {
-			push @combined, @{$invlists[0]}[$pos[0] .. $#{$invlists[0]}];
-			last;
-		}
+	} else {
+		@combined= @{$invlists[0]};
 	}
 	while ($combined[-1] > $max_codepoint) {
 		pop @combined;
